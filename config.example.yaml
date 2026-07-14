@@ -1,0 +1,33 @@
+# 知乎收藏夹 Pipeline 示例配置文件 (复制并重命名为 config.yaml)
+
+# Chrome 连接
+chrome:
+  debug_port: 9222
+
+# 同步设置
+sync:
+  collections: "all"              # "all" 或指定收藏夹名列表如 ["设计", "Hack"]
+  include_comments: true          # 是否获取评论
+  max_comments: 20                # 每篇最多获取多少条评论
+  delay_min: 3                    # 请求间隔最小秒数
+  delay_max: 8                    # 请求间隔最大秒数
+
+# Obsidian 输出
+output:
+  vault_path: "~/notes"           # 替换为您的 Obsidian 库路径（支持 ~ 扩展）
+  collection_dir: "知乎收藏"
+  image_naming: "file-${date:YYYYMMDDHHmmssSSS}"
+
+# CSS 选择器（若知乎前端改版，可在此微调选择器而无需修改源码）
+selectors:
+  answer:
+    question_title: "h1.QuestionHeader-title"
+    content: "div.RichContent-inner"
+    author: "div.AuthorInfo meta[itemprop='name']"
+    vote_count: "button.VoteButton--up"
+    time: "div.ContentItem-time"
+  article:
+    title: "h1.Post-Title"
+    content: "div.Post-RichTextContainer"
+    author: "div.AuthorInfo meta[itemprop='name']"
+    time: "div.ContentItem-time"
