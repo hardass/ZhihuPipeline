@@ -11,6 +11,8 @@ sync:
   max_comments: 20                # 每篇最多获取多少条评论
   delay_min: 3                    # 请求间隔最小秒数
   delay_max: 8                    # 请求间隔最大秒数
+  auto_archive: false             # 同步成功后是否自动移动至 archive 收藏夹
+  archive_name: "archive"         # 归档收藏夹的名称
 
 # Obsidian 输出
 output:

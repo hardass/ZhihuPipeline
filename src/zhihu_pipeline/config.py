@@ -15,6 +15,8 @@ class SyncConfig:
     max_comments: int = 20
     delay_min: float = 3.0
     delay_max: float = 8.0
+    auto_archive: bool = False
+    archive_name: str = "archive"
 
 @dataclass
 class OutputConfig:
@@ -81,7 +83,9 @@ def load_config(config_path: str = "config.yaml") -> Config:
         include_comments=sync_data.get("include_comments", True),
         max_comments=sync_data.get("max_comments", 20),
         delay_min=float(sync_data.get("delay_min", 3.0)),
-        delay_max=float(sync_data.get("delay_max", 8.0))
+        delay_max=float(sync_data.get("delay_max", 8.0)),
+        auto_archive=sync_data.get("auto_archive", False),
+        archive_name=sync_data.get("archive_name", "archive")
     )
     output = OutputConfig(
         vault_path=output_data.get("vault_path", "~/notes"),
