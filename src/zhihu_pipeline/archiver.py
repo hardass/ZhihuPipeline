@@ -34,14 +34,17 @@ async def archive_item(
         return False
 
     # 2. Click the Collect button and wait for the modal with retries
-    modal = page.locator('.Favlists-content').last
+    # Find the modal that is visible and contains "添加收藏"
+    modal = page.locator('.Favlists-content, .Modal').filter(has_text="添加收藏").last
+    create_btn = modal.locator('button:has-text("创建收藏"), button:has-text("创建")').first
+    
     opened = False
     for attempt in range(3):
         try:
             await collect_btn.scroll_into_view_if_needed()
             await collect_btn.click(force=True)
-            # Wait up to 3 seconds for the modal to be visible
-            await modal.wait_for(state="visible", timeout=3000)
+            # Wait up to 4 seconds for the create button to be visible (ensures full load)
+            await create_btn.wait_for(state="visible", timeout=4000)
             opened = True
             break
         except Exception as e:
@@ -51,6 +54,15 @@ async def archive_item(
     if not opened:
         logger.warning("Could not open collection modal dialog after 3 attempts.")
         return False
+
+    # Scroll the list container to ensure all items are loaded
+    list_container = modal.locator('.Favlists-items')
+    if await list_container.count() > 0:
+        try:
+            await list_container.evaluate('node => node.scrollTo(0, node.scrollHeight)')
+            await page.wait_for_timeout(800)
+        except Exception as se:
+            logger.debug(f"Failed to scroll list container: {se}")
 
     # 3. Locate and toggle collections
     async def get_items_map(modal_el):
@@ -69,8 +81,7 @@ async def archive_item(
 
     # If archive collection is not found, automatically create it
     if archive_collection_title not in items_map:
-        logger.info(f"Archive collection '{archive_collection_title}' not found. Creating it...")
-        create_btn = modal.locator('button:has-text("创建收藏夹")')
+        logger.info(f"Archive collection '{archive_collection_title}' not found in list. Creating it...")
         if await create_btn.count() > 0:
             try:
                 await create_btn.click()
@@ -91,8 +102,12 @@ async def archive_item(
                 # Wait for the creation modal to close and return to selection modal
                 await page.wait_for_timeout(2000)
                 
-                # Refresh the items map
-                modal = page.locator('.Favlists-content').last
+                # Scroll container again and refresh map
+                modal = page.locator('.Favlists-content, .Modal').filter(has_text="添加收藏").last
+                list_container = modal.locator('.Favlists-items')
+                if await list_container.count() > 0:
+                    await list_container.evaluate('node => node.scrollTo(0, node.scrollHeight)')
+                    await page.wait_for_timeout(800)
                 items_map = await get_items_map(modal)
             except Exception as ce:
                 logger.warning(f"Failed to create new collection: {ce}")
