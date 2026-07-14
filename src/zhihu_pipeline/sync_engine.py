@@ -141,9 +141,30 @@ class SyncEngine:
 
                 unique_key = f"{item_type}_{item_id}"
                 if not full_sync and self.manifest.is_synced(unique_key):
-                    logger.debug(f"Item {unique_key} already synced. Skipping.")
+                    if self.config.sync.auto_archive:
+                        logger.info(f"'{item['title']}' is already synced locally, but remains in active collection. Archiving now...")
+                        try:
+                            await page.goto(item["url"], wait_until="domcontentloaded", timeout=20000)
+                            try:
+                                await page.wait_for_load_state("networkidle", timeout=3000)
+                            except Exception:
+                                pass
+                            
+                            archived = await archive_item(
+                                page=page,
+                                item_type=item_type,
+                                item_id=str(item_id),
+                                current_collection_title=col_title,
+                                archive_collection_title=self.config.sync.archive_name
+                            )
+                            if archived:
+                                logger.info(f"Successfully archived previously synced item: '{item['title']}'")
+                                delay = random.uniform(self.config.sync.delay_min, self.config.sync.delay_max)
+                                logger.info(f"Waiting {delay:.1f}s before next request...")
+                                await asyncio.sleep(delay)
+                        except Exception as e:
+                            logger.error(f"Failed to archive previously synced item '{item['title']}': {e}")
                     continue
-
                 new_items.append(item)
 
             logger.info(f"Found {len(new_items)} new items to sync in '{col_title}'.")
