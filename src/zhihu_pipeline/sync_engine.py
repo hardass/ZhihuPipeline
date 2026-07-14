@@ -10,6 +10,7 @@ from zhihu_pipeline.parser import html_to_markdown
 from zhihu_pipeline.images import download_images
 from zhihu_pipeline.comments import fetch_comments
 from zhihu_pipeline.storage import ManifestManager, generate_markdown, save_markdown_file, sanitize_filename
+from zhihu_pipeline.archiver import archive_item
 
 class SyncEngine:
     def __init__(self, config):
@@ -89,6 +90,11 @@ class SyncEngine:
         for col in collections:
             title = col.get("title", "")
             
+            # Skip archive collection
+            if title == self.config.sync.archive_name:
+                logger.debug(f"Skipping archive collection from sync: '{title}'")
+                continue
+
             # Filter by target_collection CLI flag
             if target_collection and title != target_collection:
                 continue
@@ -215,6 +221,23 @@ class SyncEngine:
                         "zhihu_url": item["url"],
                         "collection": col_title
                     })
+
+                    # Auto-archive if enabled
+                    if self.config.sync.auto_archive:
+                        try:
+                            archived = await archive_item(
+                                page=page,
+                                item_type=item_type,
+                                item_id=str(item_id),
+                                current_collection_title=col_title,
+                                archive_collection_title=self.config.sync.archive_name
+                            )
+                            if archived:
+                                logger.info(f"Item '{item_title}' successfully moved to archive collection.")
+                            else:
+                                logger.warning(f"Item '{item_title}' could not be archived.")
+                        except Exception as ae:
+                            logger.error(f"Error during auto-archiving item: {ae}")
 
                     total_synced += 1
                     logger.info(f"Successfully synced: '{item_title}'")
