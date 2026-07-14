@@ -17,6 +17,7 @@
 - **⚡ 智能增量更新 & 失效过滤**：
   - 使用 `manifest.json` 记录同步历史，仅对新增内容进行同步。
   - **404 智能快退**：如果某篇文章在知乎上已被原作者删除，系统会在 0.1 秒内识别 404 状态并快速退出，同时在 `manifest.json` 中标记为 `deleted` 状态。后续同步时会直接跳过，彻底避免重复请求无效链接。
+- **🗂️ 自动线上归档 (Auto-Archive)**：配置 `auto_archive: true` 后，同步成功的文章会在知乎网页端自动从当前收藏夹移出，并分类加入到私密的 `archive` 收藏夹。同时归档收藏夹在拉取时会被自动忽略。这样主收藏夹永远只保留新增加的未同步内容，让增量同步性能提升数倍且极大规避反爬风险。
 
 ---
 
@@ -56,6 +57,7 @@ graph TD
 4. **[images.py](src/zhihu_pipeline/images.py)**: 图片下载与路径改写核心。通过 HTTP 客户端模拟浏览器 Referer，拉取图片，并进行 URL 编码化处理。
 5. **[comments.py](src/zhihu_pipeline/comments.py)**: 提取热门评论，使用纯 HTML 标签排版以防止 Markdown 块引起的 Obsidian 渲染器塌陷。
 6. **[storage.py](src/zhihu_pipeline/storage.py)**: 负责 Markdown YAML Front Matter 生成、去重机制以及本地 `manifest.json` 数据库维护。
+7. **[archiver.py](src/zhihu_pipeline/archiver.py)**: 实现知乎线上自动归档。利用 Playwright 自动触发弹窗、勾选 `archive` 收藏夹并去除原收藏夹勾选，支持缺失自动建档。
 
 ---
 
@@ -74,26 +76,25 @@ cp config.example.yaml config.yaml
 ### 2. 配置文件 `config.yaml`
 在项目根目录的 `config.yaml` 中配置您的 Obsidian 库路径以及需要同步的收藏夹。
 ```yaml
-storage:
-  # 您的 Obsidian 库根路径（支持 ~ 符号扩展）
-  obsidian_path: "~/notes"
-
+# Chrome 连接
 chrome:
   debug_port: 9222
-  # 本地 Chrome 执行路径（用于一键唤醒浏览器）
-  executable_path: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
+# 同步设置
 sync:
-  # 开启增量同步
-  incremental: true
-  # 是否拉取评论
-  include_comments: true
-  max_comments: 20
-  # 需要同步的收藏夹名称列表（若为空，默认同步您账号下的所有收藏夹）
-  collections:
-    - "Garage"
-    - "Hack"
-    - "我的收藏"
+  collections: "all"              # "all" 或指定收藏夹名列表如 ["默认收藏夹"]
+  include_comments: true          # 是否获取评论
+  max_comments: 20                # 每篇最多获取多少条评论
+  delay_min: 3                    # 请求间隔最小秒数
+  delay_max: 8                    # 请求间隔最大秒数
+  auto_archive: true              # 同步成功后自动移动至 archive 收藏夹
+  archive_name: "archive"         # 归档收藏夹的名称
+
+# Obsidian 输出
+output:
+  vault_path: "~/notes"           # 您的 Obsidian 库根路径（支持 ~ 符号扩展）
+  collection_dir: "知乎收藏"
+  image_naming: "file-${date:YYYYMMDDHHmmssSSS}"
 ```
 
 ---
