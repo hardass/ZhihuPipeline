@@ -136,7 +136,30 @@ class SyncEngine:
                 
                 # Check item type
                 if item_type not in ["answer", "article"]:
-                    logger.debug(f"Skipping item {item_id} due to unsupported type: {item_type}")
+                    logger.debug(f"Skipping local download for item {item_id} due to unsupported type: {item_type}")
+                    if self.config.sync.auto_archive:
+                        logger.info(f"'{item['title']}' is of unsupported type '{item_type}', but remains in active collection. Archiving on Zhihu...")
+                        try:
+                            await page.goto(item["url"], wait_until="domcontentloaded", timeout=20000)
+                            try:
+                                await page.wait_for_load_state("networkidle", timeout=3000)
+                            except Exception:
+                                pass
+                            
+                            archived = await archive_item(
+                                page=page,
+                                item_type=item_type,
+                                item_id=str(item_id),
+                                current_collection_title=col_title,
+                                archive_collection_title=self.config.sync.archive_name
+                            )
+                            if archived:
+                                logger.info(f"Successfully archived unsupported item: '{item['title']}'")
+                                delay = random.uniform(self.config.sync.delay_min, self.config.sync.delay_max)
+                                logger.info(f"Waiting {delay:.1f}s before next request...")
+                                await asyncio.sleep(delay)
+                        except Exception as e:
+                            logger.error(f"Failed to archive unsupported item '{item['title']}': {e}")
                     continue
 
                 unique_key = f"{item_type}_{item_id}"
