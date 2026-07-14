@@ -1,5 +1,6 @@
 import asyncio
 import json
+import random
 from typing import List, Dict, Any, Optional
 from loguru import logger
 from playwright.async_api import Page, Response
@@ -79,34 +80,38 @@ async def fetch_collection_items(page: Page, collection_id: int) -> List[Dict[st
     except Exception as e:
         logger.warning(f"Initial collection page load timeout, proceeding: {e}")
         
-    # Scroll multiple times to trigger pagination
-    last_count = 0
-    no_change_scrolls = 0
-    for i in range(30): # Safety limit
-        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        await asyncio.sleep(2.0)
-        
+    # Navigate through pagination pages to load all items
+    for page_num in range(1, 100):  # Safety limit of 100 pages
         current_count = len(collected_items)
-        if current_count == last_count:
-            no_change_scrolls += 1
-            if no_change_scrolls >= 3:
-                # Try clicking "加载更多" button if exists
-                try:
-                    load_more = page.locator("button.QuestionMainAction, button:has-text('加载更多')")
-                    if await load_more.is_visible():
-                        await load_more.click()
-                        await asyncio.sleep(2.0)
-                        no_change_scrolls = 0
-                        continue
-                except Exception:
-                    pass
-                logger.info("No new items loaded after multiple scrolls/clicks. Ending search.")
-                break
-        else:
-            no_change_scrolls = 0
-            last_count = current_count
-            logger.info(f"Loaded {current_count} items so far...")
-
+        logger.info(f"Loaded {current_count} items from collection page {page_num}...")
+        
+        # Scroll to bottom to ensure pagination buttons are rendered
+        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        await asyncio.sleep(1.5)
+        
+        # Locate Next Page button
+        next_btn = page.locator('button.PaginationButton-next, button:has-text("下一页"), a:has-text("下一页")').first
+        if await next_btn.count() == 0 or not await next_btn.is_visible():
+            logger.info("Next page button not found or not visible. Reached the end.")
+            break
+            
+        # Check if disabled
+        is_disabled = await next_btn.evaluate("node => node.disabled")
+        if is_disabled:
+            logger.info("Next page button is disabled. Reached the end.")
+            break
+            
+        # Click next page
+        logger.info(f"Navigating to collection page {page_num + 1}...")
+        try:
+            await next_btn.scroll_into_view_if_needed()
+            await next_btn.click()
+            # Random wait to prevent rate limits
+            await asyncio.sleep(random.uniform(2.5, 4.0))
+        except Exception as e:
+            logger.warning(f"Failed to navigate to next page: {e}")
+            break
+            
     page.remove_listener("response", on_response)
     
     # Process items and normalize them
