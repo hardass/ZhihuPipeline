@@ -11,7 +11,7 @@ async def archive_item(
 ) -> bool:
     """
     Archive a synced item:
-    1. Locate and click the 'Collect' button on the page.
+    1. Locate and click the 'Collect' button on the page with retries.
     2. Add the item to the 'archive' collection.
     3. Remove the item from the original collection.
     4. Close the modal dialog.
@@ -19,7 +19,7 @@ async def archive_item(
     logger.info(f"Archiving {item_type} {item_id}: moving from '{current_collection_title}' to '{archive_collection_title}'...")
 
     # 1. Locate the Collect button
-    # Try to find the button inside the target answer container first to avoid clicking buttons of other answers on the page
+    # Try to find the button inside the target container first to avoid clicking buttons of other answers
     if item_type == "answer":
         container = page.locator(".AnswerItem").first
     else:
@@ -27,35 +27,29 @@ async def archive_item(
 
     collect_btn = container.locator('button:has(svg.Zi--Star, svg.Zi--StarFill), button:has-text("收藏")')
     if await collect_btn.count() == 0:
-        # Fallback to searching the entire page
         collect_btn = page.locator('button:has(svg.Zi--Star, svg.Zi--StarFill), button:has-text("收藏")').first
 
     if await collect_btn.count() == 0:
         logger.warning("Could not find the 'Collect' button on the page.")
         return False
 
-    try:
-        await collect_btn.scroll_into_view_if_needed()
-        await collect_btn.click()
-        await page.wait_for_timeout(1500)
-    except Exception as e:
-        logger.warning(f"Failed to click collect button: {e}")
-        return False
-
-    # 2. Locate the collection list modal
+    # 2. Click the Collect button and wait for the modal with retries
     modal = page.locator('.Favlists-content').last
-    if await modal.count() == 0:
-        logger.warning("Could not locate the collection modal.")
-        # Try to click again
+    opened = False
+    for attempt in range(3):
         try:
-            await collect_btn.click()
-            await page.wait_for_timeout(1500)
-            modal = page.locator('.Favlists-content').last
-        except Exception:
-            pass
+            await collect_btn.scroll_into_view_if_needed()
+            await collect_btn.click(force=True)
+            # Wait up to 3 seconds for the modal to be visible
+            await modal.wait_for(state="visible", timeout=3000)
+            opened = True
+            break
+        except Exception as e:
+            logger.debug(f"Attempt {attempt+1} to open modal failed: {e}")
+            await page.wait_for_timeout(1000)
 
-    if await modal.count() == 0:
-        logger.warning("Could not open collection modal dialog.")
+    if not opened:
+        logger.warning("Could not open collection modal dialog after 3 attempts.")
         return False
 
     # 3. Locate and toggle collections
@@ -78,12 +72,10 @@ async def archive_item(
         logger.info(f"Archive collection '{archive_collection_title}' not found. Creating it...")
         create_btn = modal.locator('button:has-text("创建收藏夹")')
         if await create_btn.count() > 0:
-            await create_btn.click()
-            await page.wait_for_timeout(1000)
-
-            # Fill name
-            title_input = page.locator('input.Input[placeholder="收藏标题"]')
-            if await title_input.count() > 0:
+            try:
+                await create_btn.click()
+                title_input = page.locator('input.Input[placeholder="收藏标题"]')
+                await title_input.wait_for(state="visible", timeout=3000)
                 await title_input.fill(archive_collection_title)
 
                 # Set to Private (私密) for privacy
@@ -93,15 +85,17 @@ async def archive_item(
 
                 # Confirm creation
                 confirm_btn = page.locator('button[type="submit"]:has-text("确认创建")')
-                if await confirm_btn.count() > 0:
-                    await confirm_btn.click()
-                    await page.wait_for_timeout(2000)
-                    
-                    # Refresh the items map
-                    modal = page.locator('.Favlists-content').last
-                    items_map = await get_items_map(modal)
-            else:
-                logger.warning("Could not find the collection name input field.")
+                await confirm_btn.wait_for(state="visible", timeout=3000)
+                await confirm_btn.click()
+                
+                # Wait for the creation modal to close and return to selection modal
+                await page.wait_for_timeout(2000)
+                
+                # Refresh the items map
+                modal = page.locator('.Favlists-content').last
+                items_map = await get_items_map(modal)
+            except Exception as ce:
+                logger.warning(f"Failed to create new collection: {ce}")
         else:
             logger.warning("Could not find '创建收藏夹' button.")
 
@@ -122,9 +116,8 @@ async def archive_item(
     else:
         logger.warning(f"Archive collection '{archive_collection_title}' still not found/created.")
 
-    # Remove from original collection (only if archive succeeded or original is different)
+    # Remove from original collection
     if archive_success and current_collection_title in items_map:
-        # Avoid removing if original IS the archive collection
         if current_collection_title != archive_collection_title:
             original_item_el = items_map[current_collection_title]
             btn = original_item_el.locator('button')
