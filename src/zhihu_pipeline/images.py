@@ -114,9 +114,10 @@ async def download_images(markdown_text: str, note_name: str, output_dir: str) -
 
             filename = f"file-{timestamp_str}.{ext}"
             
-            import urllib.parse
-            encoded_note_name = urllib.parse.quote(note_name)
-            encoded_filename = urllib.parse.quote(filename)
+            # Obsidian only requires space characters to be encoded as %20 in Markdown links.
+            # Other characters like '+' and Chinese characters should be kept literal to prevent lookup failures.
+            encoded_note_name = note_name.replace(" ", "%20")
+            encoded_filename = filename.replace(" ", "%20")
             
             target_path = os.path.join(assets_dir, filename)
             local_rel_path = f"../../assets/{encoded_note_name}/{encoded_filename}"
