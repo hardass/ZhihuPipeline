@@ -123,14 +123,18 @@ async def archive_item(
         if btn_text == "收藏":
             logger.info(f"Adding item to archive: '{archive_collection_title}'")
             await btn.click()
-            await page.wait_for_timeout(1000)
-            btn_text = (await btn.inner_text()).strip()
+            # Poll up to 3 seconds for state change to handle network lag
+            for _ in range(6):
+                await page.wait_for_timeout(500)
+                btn_text = (await btn.inner_text()).strip()
+                if btn_text == "已收藏":
+                    break
         
         if btn_text == "已收藏":
             archive_success = True
     else:
         logger.warning(f"Archive collection '{archive_collection_title}' still not found/created.")
-
+ 
     # Remove from original collection
     if archive_success and current_collection_title in items_map:
         if current_collection_title != archive_collection_title:
@@ -140,7 +144,12 @@ async def archive_item(
             if btn_text == "已收藏":
                 logger.info(f"Removing item from original collection: '{current_collection_title}'")
                 await btn.click()
-                await page.wait_for_timeout(1000)
+                # Poll up to 3 seconds for state change to handle network lag
+                for _ in range(6):
+                    await page.wait_for_timeout(500)
+                    btn_text = (await btn.inner_text()).strip()
+                    if btn_text == "收藏":
+                        break
 
     # 4. Close the modal
     close_btn = page.locator('button[aria-label="关闭"]').last
