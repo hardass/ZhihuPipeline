@@ -45,3 +45,7 @@ htmlcov/
 
 # Local Configuration (sensitive and personal paths)
 config.yaml
+
+# Git Worktrees
+.worktrees/
+
