@@ -5,6 +5,7 @@ import yaml
 from datetime import datetime
 from typing import Dict, Any, Optional
 from loguru import logger
+from zhihu_pipeline.tagger import ensure_code_blocks_fenced
 
 def sanitize_filename(title: str, max_length: int = 80) -> str:
     """
@@ -57,6 +58,8 @@ def generate_markdown(content: Dict[str, Any], comments_md: str = "") -> str:
     
     # Extract description: first 100 characters of clean markdown text
     body_md = content.get("content_markdown", "")
+    # Layer 3: Fence code blocks to prevent bare '#' comments leaking as Obsidian tags
+    body_md = ensure_code_blocks_fenced(body_md)
     # Remove markdown formatting for description
     clean_text = re.sub(r'[*_`#\[\]()!>\-]', '', body_md)
     clean_text = re.sub(r'\s+', ' ', clean_text).strip()
