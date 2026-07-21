@@ -266,12 +266,10 @@ def tag_single_file(file_path: str, cfg) -> bool:
         if not isinstance(existing_tags, list):
             existing_tags = []
 
-        # Keep non-blacklisted existing tags (e.g. zhihu) and merge sanitized concepts into tags
+        # Filter out blacklisted tags (including 'zhihu')
         cleaned_existing = [t for t in existing_tags if t not in BLACKLIST and t.strip()]
-        if "zhihu" not in cleaned_existing:
-            cleaned_existing = ["zhihu"] + cleaned_existing
 
-        # Combine 'zhihu' + concepts into tags (preserving order and uniqueness)
+        # Combine concept terms into tags (preserving order and uniqueness)
         merged_tags = list(cleaned_existing)
         for c_term in result["concept"]:
             if c_term and c_term not in merged_tags and c_term.lower() not in BLACKLIST:
