@@ -73,7 +73,7 @@ def generate_markdown(content: Dict[str, Any], comments_md: str = "") -> str:
         "published": published,
         "created": created,
         "description": description,
-        "tags": ["zhihu"]
+        "tags": []
     }
 
     # Inject tagging fields if present
