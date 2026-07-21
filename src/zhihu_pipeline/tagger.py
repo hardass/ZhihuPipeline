@@ -261,14 +261,23 @@ def tag_single_file(file_path: str, cfg) -> bool:
         frontmatter["level"] = result["level"]
         frontmatter["summary"] = result["summary"]
 
-        # Clean legacy/garbage tags from frontmatter
-        tags = frontmatter.get("tags", [])
-        if isinstance(tags, list):
-            cleaned_tags = [t for t in tags if t not in BLACKLIST and t.strip()]
-            # Always keep "zhihu" as the source provenance tag
-            if "zhihu" not in cleaned_tags:
-                cleaned_tags = ["zhihu"] + cleaned_tags
-            frontmatter["tags"] = cleaned_tags
+        # Sync concept terms into frontmatter['tags'] for Obsidian tag tree & graph view compatibility
+        existing_tags = frontmatter.get("tags", [])
+        if not isinstance(existing_tags, list):
+            existing_tags = []
+
+        # Keep non-blacklisted existing tags (e.g. zhihu) and merge sanitized concepts into tags
+        cleaned_existing = [t for t in existing_tags if t not in BLACKLIST and t.strip()]
+        if "zhihu" not in cleaned_existing:
+            cleaned_existing = ["zhihu"] + cleaned_existing
+
+        # Combine 'zhihu' + concepts into tags (preserving order and uniqueness)
+        merged_tags = list(cleaned_existing)
+        for c_term in result["concept"]:
+            if c_term and c_term not in merged_tags and c_term.lower() not in BLACKLIST:
+                merged_tags.append(c_term)
+
+        frontmatter["tags"] = merged_tags
 
         # Write back to file
         fm_str = yaml.safe_dump(frontmatter, allow_unicode=True, default_flow_style=False, sort_keys=False)
