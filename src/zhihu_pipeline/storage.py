@@ -70,8 +70,13 @@ def generate_markdown(content: Dict[str, Any], comments_md: str = "") -> str:
         "published": published,
         "created": created,
         "description": description,
-        "tags": ["clippings", "zhihu"]
+        "tags": ["zhihu"]
     }
+
+    # Inject tagging fields if present
+    for key in ["domain", "concept", "level", "summary"]:
+        if key in content and content[key] is not None:
+            front_matter[key] = content[key]
     
     # Dump YAML front matter manually or using PyYAML to match user styling
     yaml_lines = yaml.dump(front_matter, allow_unicode=True, default_flow_style=False, sort_keys=False).strip()
@@ -164,11 +169,13 @@ class ManifestManager:
         # If it exists and status is not 'removed', it's synced
         return unique_key in synced_items and item.get("status") != "removed"
         
-    def add_item(self, unique_key: str, item_info: dict):
+    def add_item(self, unique_key: str, item_info: dict, tagging_status: str = "pending"):
         if "synced_items" not in self.data:
             self.data["synced_items"] = {}
         item_info["synced_at"] = datetime.now().isoformat()
         item_info["status"] = "synced"
+        item_info["tagging_status"] = tagging_status
+        item_info["tagged_at"] = None
         self.data["synced_items"][unique_key] = item_info
         self.data["last_sync"] = datetime.now().isoformat()
         self.save()
@@ -179,6 +186,31 @@ class ManifestManager:
             synced_items[unique_key]["status"] = "removed"
             synced_items[unique_key]["removed_at"] = datetime.now().isoformat()
             self.save()
+
+    def update_tagging_status(self, unique_key: str, status: str):
+        """
+        Update tagging_status for an existing manifest item.
+        status: one of "pending", "tagged", "failed", "skipped"
+        """
+        synced_items = self.data.get("synced_items", {})
+        if unique_key in synced_items:
+            synced_items[unique_key]["tagging_status"] = status
+            if status == "tagged":
+                synced_items[unique_key]["tagged_at"] = datetime.now().isoformat()
+            self.save()
+
+    def get_untagged_items(self) -> list:
+        """
+        Return list of (unique_key, item_dict) for all items with
+        tagging_status in ("pending", "failed").
+        """
+        synced_items = self.data.get("synced_items", {})
+        result = []
+        for key, item in synced_items.items():
+            ts = item.get("tagging_status", "pending")
+            if ts in ("pending", "failed"):
+                result.append((key, item))
+        return result
             
     def get_stats(self) -> dict:
         synced_items = self.data.get("synced_items", {})
