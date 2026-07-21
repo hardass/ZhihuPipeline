@@ -33,3 +33,22 @@ selectors:
     content: "div.Post-RichTextContainer"
     author: "div.AuthorInfo meta[itemprop='name']"
     time: "div.ContentItem-time"
+
+# 自动打标签（需要本地 LM Studio 运行时方可生效）
+tagger:
+  enabled: false                   # 总开关：false = 只下载，不打标签
+  backend: "local"                 # "local"（LM Studio）| "gemini"（暂未实现）
+  lm_studio_url: "http://localhost:1234"
+  model: "gemma4-12b-qat-uncensored-hauhaucs-balanced"
+  timeout: 600                     # 本地推理超时（秒）
+  valid_domains:
+    - AI
+    - Product
+    - Engineering
+    - Career
+    - Finance
+    - Life
+    - Home
+    - Hobbies
+    - Psychology
+    - Parenting

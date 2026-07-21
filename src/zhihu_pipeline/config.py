@@ -28,6 +28,18 @@ class OutputConfig:
         self.vault_path = os.path.abspath(os.path.expanduser(self.vault_path))
 
 @dataclass
+class TaggerConfig:
+    enabled: bool = False
+    backend: str = "local"
+    lm_studio_url: str = "http://localhost:1234"
+    model: str = "gemma4-12b-qat-uncensored-hauhaucs-balanced"
+    timeout: int = 600
+    valid_domains: List[str] = field(default_factory=lambda: [
+        "AI", "Product", "Engineering", "Career", "Finance",
+        "Life", "Home", "Hobbies", "Psychology", "Parenting"
+    ])
+
+@dataclass
 class SelectorConfig:
     question_title: str
     content: str
@@ -56,6 +68,7 @@ class Config:
     chrome: ChromeConfig = field(default_factory=ChromeConfig)
     sync: SyncConfig = field(default_factory=SyncConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
+    tagger: TaggerConfig = field(default_factory=TaggerConfig)
     selectors: Dict[str, Any] = field(default_factory=dict)
 
 def load_config(config_path: str = "config.yaml") -> Config:
@@ -73,6 +86,7 @@ def load_config(config_path: str = "config.yaml") -> Config:
     chrome_data = data.get("chrome") or {}
     sync_data = data.get("sync") or {}
     output_data = data.get("output") or {}
+    tagger_data = data.get("tagger") or {}
     selectors_data = data.get("selectors") or {}
 
     chrome = ChromeConfig(
@@ -92,10 +106,19 @@ def load_config(config_path: str = "config.yaml") -> Config:
         collection_dir=output_data.get("collection_dir", "知乎收藏"),
         image_naming=output_data.get("image_naming", "file-${date:YYYYMMDDHHmmssSSS}")
     )
+    tagger = TaggerConfig(
+        enabled=tagger_data.get("enabled", False),
+        backend=tagger_data.get("backend", "local"),
+        lm_studio_url=tagger_data.get("lm_studio_url", "http://localhost:1234"),
+        model=tagger_data.get("model", "gemma4-12b-qat-uncensored-hauhaucs-balanced"),
+        timeout=int(tagger_data.get("timeout", 600)),
+        valid_domains=tagger_data.get("valid_domains", TaggerConfig().valid_domains)
+    )
 
     return Config(
         chrome=chrome,
         sync=sync,
         output=output,
+        tagger=tagger,
         selectors=selectors_data
     )

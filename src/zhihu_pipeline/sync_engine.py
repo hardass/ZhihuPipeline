@@ -11,6 +11,7 @@ from zhihu_pipeline.images import download_images
 from zhihu_pipeline.comments import fetch_comments
 from zhihu_pipeline.storage import ManifestManager, generate_markdown, save_markdown_file, sanitize_filename
 from zhihu_pipeline.archiver import archive_item
+from zhihu_pipeline.tagger import run_tagging_pass
 
 class SyncEngine:
     def __init__(self, config):
@@ -258,13 +259,14 @@ class SyncEngine:
 
                     # Update Manifest
                     rel_local_path = os.path.relpath(saved_path, self.config.output.vault_path)
+                    initial_tagging_status = "pending" if self.config.tagger.enabled else "skipped"
                     self.manifest.add_item(unique_key, {
                         "title": item_title,
                         "type": item_type,
                         "local_path": rel_local_path,
                         "zhihu_url": item["url"],
                         "collection": col_title
-                    })
+                    }, tagging_status=initial_tagging_status)
 
                     # Auto-archive if enabled
                     if self.config.sync.auto_archive:
@@ -298,6 +300,11 @@ class SyncEngine:
         duration = datetime.now() - start_time
         logger.info("=== Synchronization Finished ===")
         logger.info(f"Total Synced: {total_synced} | Failed: {total_failed} | Time elapsed: {duration}")
+
+        if self.config.tagger.enabled:
+            logger.info("=== Starting Auto-Tagging Pass ===")
+            success, fail = run_tagging_pass(self.manifest, self.config.output.vault_path, self.config.tagger)
+            logger.info(f"Tagging finished: {success} tagged, {fail} failed (will retry next time).")
 
     async def check_auth(self):
         """
