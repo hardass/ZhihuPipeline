@@ -76,8 +76,8 @@ def clean_zhihu_html(html: str) -> str:
             a.unwrap()
 
     # 5. Remove Zhihu noise elements:
-    # - "赞同", "还没有人送礼物", "继续追问", "更多回答"
-    # - "发布于", "编辑于", "IP 属地"
+    # - "Upvote", "No gifts sent yet", "Ask follow-up", "More answers"
+    # - "Published at", "Edited at", "IP location"
     # - Bottom hot search links
     for el in soup.find_all(string=True):
         text_val = el.strip()

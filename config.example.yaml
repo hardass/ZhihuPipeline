@@ -1,26 +1,26 @@
-# 知乎收藏夹 Pipeline 示例配置文件 (复制并重命名为 config.yaml)
+# Zhihu Collection Pipeline Example Config File (Copy and rename to config.yaml)
 
-# Chrome 连接
+# Chrome Connection
 chrome:
   debug_port: 9222
 
-# 同步设置
+# Sync Settings
 sync:
-  collections: "all"              # "all" 或指定收藏夹名列表如 ["设计", "Hack"]
-  include_comments: true          # 是否获取评论
-  max_comments: 20                # 每篇最多获取多少条评论
-  delay_min: 3                    # 请求间隔最小秒数
-  delay_max: 8                    # 请求间隔最大秒数
-  auto_archive: false             # 同步成功后是否自动移动至 archive 收藏夹
-  archive_name: "archive"         # 归档收藏夹的名称
+  collections: "all"              # "all" or a list of collection names e.g. ["Design", "Hack"]
+  include_comments: true          # Whether to fetch comments
+  max_comments: 20                # Max comments to fetch per item
+  delay_min: 3                    # Minimum delay between requests in seconds
+  delay_max: 8                    # Maximum delay between requests in seconds
+  auto_archive: false             # Automatically move to archive collection after successful sync
+  archive_name: "archive"         # Name of the archive collection
 
-# Obsidian 输出
+# Obsidian Output
 output:
-  vault_path: "~/notes"           # 替换为您的 Obsidian 库路径（支持 ~ 扩展）
+  vault_path: "~/notes"           # Replace with your Obsidian vault path (supports ~ expansion)
   collection_dir: "知乎收藏"
   image_naming: "file-${date:YYYYMMDDHHmmssSSS}"
 
-# CSS 选择器（若知乎前端改版，可在此微调选择器而无需修改源码）
+# CSS Selectors (Tweak selectors here if Zhihu frontend layout changes without altering source code)
 selectors:
   answer:
     question_title: "h1.QuestionHeader-title"
@@ -34,13 +34,13 @@ selectors:
     author: "div.AuthorInfo meta[itemprop='name']"
     time: "div.ContentItem-time"
 
-# 自动打标签（需要本地 LM Studio 运行时方可生效）
+# Auto-tagging (Requires local LM Studio instance running)
 tagger:
-  enabled: false                   # 总开关：false = 只下载，不打标签
-  backend: "local"                 # "local"（LM Studio）| "gemini"（暂未实现）
+  enabled: false                   # Global toggle: false = download only, no tagging
+  backend: "local"                 # "local" (LM Studio) | "gemini" (Not implemented yet)
   lm_studio_url: "http://localhost:1234"
   model: "gemma4-12b-qat-uncensored-hauhaucs-balanced"
-  timeout: 600                     # 本地推理超时（秒）
+  timeout: 600                     # Local inference timeout (seconds)
   valid_domains:
     - AI
     - Product
