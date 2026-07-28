@@ -45,7 +45,7 @@ def tag(dry_run, force):
     """
     config = load_config()
     if not config.tagger.enabled:
-        print("⚠️  tagger.enabled 为 false，请先在 config.yaml 中开启。")
+        logger.warning("tagger.enabled is false. Please enable it in config.yaml first.")
         return
 
     from zhihu_pipeline.storage import ManifestManager
@@ -62,10 +62,10 @@ def tag(dry_run, force):
             if item.get("tagging_status") == "tagged":
                 item["tagging_status"] = "pending"
         manifest.save()
-        print("ℹ️  --force: 已将所有 tagged 记录重置为 pending。")
+        logger.info("--force: Reset all 'tagged' records to 'pending'.")
 
     pending = manifest.get_untagged_items()
-    print(f"ℹ️  共发现 {len(pending)} 篇文章待打标签。")
+    logger.info(f"Found {len(pending)} articles pending for tagging.")
 
     if dry_run:
         for key, item in pending:
@@ -73,9 +73,9 @@ def tag(dry_run, force):
         return
 
     success, fail = run_tagging_pass(manifest, config.output.vault_path, config.tagger)
-    print(f"\n✅ 打标签完成：成功 {success} 篇，失败 {fail} 篇。")
+    logger.info(f"Tagging complete: {success} successful, {fail} failed.")
     if fail > 0:
-        print("ℹ️  失败的文章已标记为 failed，下次运行 `tag` 命令时将自动重试。")
+        logger.info("Failed articles have been marked as 'failed' and will be retried next time the 'tag' command is run.")
 
 if __name__ == "__main__":
     cli()
