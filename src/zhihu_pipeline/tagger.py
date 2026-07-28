@@ -4,6 +4,7 @@ import json
 import yaml
 import httpx
 from loguru import logger
+from tqdm import tqdm
 
 # ============================================================
 # Schema Constants
@@ -162,7 +163,7 @@ def ensure_code_blocks_fenced(body_text: str) -> str:
 # LM Studio API Call
 # ============================================================
 
-def call_lm_studio(content: str, cfg) -> dict:
+def call_lm_studio(content: str, cfg, pbar=None) -> dict:
     """
     Calls local LM Studio API via HTTPX.
     Returns a validated, sanitized metadata dict.
@@ -180,16 +181,35 @@ def call_lm_studio(content: str, cfg) -> dict:
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt}
-        ]
+        ],
+        "stream": True
     }
 
+    full_text = ""
     # trust_env=False prevents HTTPX from using local system proxies for localhost requests.
     with httpx.Client(timeout=cfg.timeout, trust_env=False) as client:
-        response = client.post(url, json=payload)
-        response.raise_for_status()
-        res_data = response.json()
+        with client.stream("POST", url, json=payload) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if line.startswith("data: "):
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(data_str)
+                        delta = data["choices"][0].get("delta", {})
+                        if "content" in delta:
+                            full_text += delta["content"]
+                            if pbar:
+                                preview = full_text.replace("\n", " ")[-40:]
+                                pbar.set_postfix_str(f"Inferring: {preview}")
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        pass
 
-    text = res_data["choices"][0]["message"]["content"].strip()
+    if pbar:
+        pbar.set_postfix_str("")
+
+    text = full_text.strip()
     # Clean up code block wrappers if model added them despite system instructions
     clean_text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE).strip()
     raw_result = json.loads(clean_text)
@@ -219,7 +239,7 @@ def call_lm_studio(content: str, cfg) -> dict:
 # File-level Tagging
 # ============================================================
 
-def tag_single_file(file_path: str, cfg) -> bool:
+def tag_single_file(file_path: str, cfg, pbar=None) -> bool:
     """
     Reads a Markdown file, updates its YAML frontmatter with LLM tagging,
     applies all three guardrail layers, and writes back to disk.
@@ -253,7 +273,7 @@ def tag_single_file(file_path: str, cfg) -> bool:
 
     # Call Local LLM
     try:
-        result = call_lm_studio(body, cfg)
+        result = call_lm_studio(body, cfg, pbar=pbar)
 
         # Inject classifications (already sanitized inside call_lm_studio)
         frontmatter["domain"] = result["domain"]
@@ -295,6 +315,26 @@ def tag_single_file(file_path: str, cfg) -> bool:
 # Batch Tagging Pass
 # ============================================================
 
+def ensure_model_loaded(model_name: str) -> bool:
+    """
+    Check if the required local model is loaded in LM Studio via the `lms` CLI.
+    If not, attempt to silently load it.
+    """
+    import subprocess
+    try:
+        res = subprocess.run(["lms", "ps"], capture_output=True, text=True)
+        if model_name not in res.stdout:
+            logger.info(f"Local model {model_name} not loaded, attempting to load via lms CLI...")
+            subprocess.run(["lms", "load", model_name, "--yes"], check=True, stdout=subprocess.DEVNULL)
+            logger.info("Model loaded successfully in the background!")
+            return True
+        else:
+            logger.info(f"Model {model_name} is already loaded in memory.")
+            return True
+    except Exception as e:
+        logger.warning(f"Failed to auto-load local model (ensure lms CLI is installed and in PATH): {e}")
+        return False
+
 def run_tagging_pass(manifest, vault_path: str, cfg) -> tuple:
     """
     Finds all pending or failed files in the manifest and attempts to tag them.
@@ -307,10 +347,16 @@ def run_tagging_pass(manifest, vault_path: str, cfg) -> tuple:
 
     logger.info(f"Starting tagging pass for {len(pending_items)} files...")
 
+    if hasattr(cfg, "model") and cfg.model:
+        if not ensure_model_loaded(cfg.model):
+            logger.error("Aborting tagging pass because the model failed to load.")
+            return 0, 0
+
     success_count = 0
     fail_count = 0
 
-    for key, item in pending_items:
+    progress_bar = tqdm(pending_items, desc="Tagging Articles")
+    for key, item in progress_bar:
         local_path = item.get("local_path")
         if not local_path:
             logger.warning(f"Item {key} has no local_path specified in manifest. Skipping.")
@@ -320,7 +366,7 @@ def run_tagging_pass(manifest, vault_path: str, cfg) -> tuple:
 
         full_path = os.path.join(vault_path, local_path)
 
-        success = tag_single_file(full_path, cfg)
+        success = tag_single_file(full_path, cfg, pbar=progress_bar)
         if success:
             manifest.update_tagging_status(key, "tagged")
             success_count += 1

@@ -71,13 +71,14 @@ class SyncEngine:
             print("="*60 + "\n")
             
             while not logged_in:
-                input("👉 请在浏览器登录成功后，回到这里按【回车键】继续...")
+                input("请在浏览器登录成功后，回到这里按【回车键】继续...")
                 logger.info("Retrying login check...")
                 logged_in, username = await check_login(page)
                 if not logged_in:
-                    print("⚠️ 仍未检测到登录态，请确认您已成功登录并看到知乎首页，然后重试。")
+                    logger.warning("Login state not detected yet. Please ensure you have successfully logged in and can see the Zhihu homepage, then retry.")
+                    await asyncio.sleep(2.0)
             
-            print(f"\n✅ 登录成功！当前用户: {username}\n")
+            logger.info(f"Login successful! Current user: {username}")
 
         # 3. Retrieve Collections
         collections = await fetch_collections(page)
