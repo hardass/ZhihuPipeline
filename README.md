@@ -181,33 +181,33 @@ cp config.example.yaml config.yaml
 ### 2. 配置文件 `config.yaml`
 
 ```yaml
-# Chrome 连接
+# Chrome Connection
 chrome:
   debug_port: 9222
 
-# 同步设置
+# Sync Settings
 sync:
-  collections: "all"              # "all" 或指定收藏夹名列表，如 ["默认收藏夹", "Hack"]
-  include_comments: true          # 是否获取热门评论
+  collections: "all"              # "all" or a list of collection names, e.g. ["Default Collection", "Hack"]
+  include_comments: true          # Whether to fetch comments
   max_comments: 20
-  delay_min: 3                    # 请求间隔（秒），建议不低于 3
+  delay_min: 3                    # Delay between requests (seconds), recommended min 3
   delay_max: 8
-  auto_archive: true              # 同步成功后自动移入 archive 收藏夹
+  auto_archive: true              # Automatically move to archive collection after successful sync
   archive_name: "archive"
 
-# Obsidian 输出
+# Obsidian Output
 output:
-  vault_path: "~/notes"           # 你的 Obsidian 库根目录（支持 ~ 扩展）
+  vault_path: "~/notes"           # Your Obsidian vault root path (supports ~ expansion)
   collection_dir: "知乎收藏"
   image_naming: "file-${date:YYYYMMDDHHmmssSSS}"
 
-# 自动打标签（需要本地 LM Studio 运行）
+# Auto-tagging (Requires local LM Studio instance running)
 tagger:
-  enabled: true                   # false = 只下载，不打标签
+  enabled: true                   # Global toggle: false = download only, no tagging
   backend: "local"
   lm_studio_url: "http://localhost:1234"
-  model: "gemma4-12b-qat-uncensored-hauhaucs-balanced"   # 或任意已加载的模型 ID
-  timeout: 600                    # 单篇推理超时（秒），Gemma4-12B 建议 600
+  model: "gemma4-12b-qat-uncensored-hauhaucs-balanced"   # Or any loaded model ID
+  timeout: 600                    # Inference timeout per item (seconds)
 ```
 
 ---

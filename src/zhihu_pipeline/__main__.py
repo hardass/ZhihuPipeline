@@ -36,12 +36,12 @@ def check_auth():
     asyncio.run(engine.check_auth())
 
 @cli.command()
-@click.option("--dry-run", is_flag=True, help="只显示待处理文件，不实际调用 LM Studio。")
-@click.option("--force", is_flag=True, help="重新处理所有文件，包括已标记为 tagged 的。")
+@click.option("--dry-run", is_flag=True, help="Only display pending files without invoking LM Studio.")
+@click.option("--force", is_flag=True, help="Reprocess all files, including those already marked as tagged.")
 def tag(dry_run, force):
     """
-    对所有未打标签（pending/failed）的文章执行打标签。
-    可独立运行，与 sync 命令完全解耦。
+    Run auto-tagging for all untagged (pending/failed) articles.
+    Can be run independently, fully decoupled from the sync command.
     """
     config = load_config()
     if not config.tagger.enabled:
@@ -57,7 +57,7 @@ def tag(dry_run, force):
     manifest = ManifestManager(manifest_path)
 
     if force:
-        # 将所有 tagged 状态重置为 pending
+        # Reset all tagged status to pending
         for key, item in manifest.data.get("synced_items", {}).items():
             if item.get("tagging_status") == "tagged":
                 item["tagging_status"] = "pending"
