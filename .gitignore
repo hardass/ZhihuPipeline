@@ -49,3 +49,7 @@ config.yaml
 # Git Worktrees
 .worktrees/
 
+# Media & Scraping scratch files
+video_info.json
+yt_venv/
+

@@ -43,7 +43,7 @@
 
 ### 🤖 本地大模型自动标签系统（新功能）
 
-这是本项目的核心差异化功能。每篇文章入库后，通过本地运行的 **LM Studio + Gemma4-12B** 进行三维元数据推理：
+这是本项目的核心差异化功能。每篇文章入库后，通过本地运行的 **LM Studio + Qwen2.5-3B-Instruct (MLX)** 进行三维元数据推理：
 
 | 维度 | 说明 | 示例 |
 |---|---|---|
@@ -206,8 +206,8 @@ tagger:
   enabled: true                   # Global toggle: false = download only, no tagging
   backend: "local"
   lm_studio_url: "http://localhost:1234"
-  model: "gemma4-12b-qat-uncensored-hauhaucs-balanced"   # Or any loaded model ID
-  timeout: 600                    # Inference timeout per item (seconds)
+  model: "qwen2.5-3b-instruct-mlx"   # Or any loaded model ID
+  timeout: 120                    # Inference timeout per item (seconds)
 ```
 
 ---
@@ -278,4 +278,4 @@ uv run pytest tests/ -v
 
 - 本工具仅供个人学习与知识管理使用，请勿用于商业抓取或大规模爬取。
 - 建议 `delay_min` 不低于 3 秒，减少对知乎服务器的请求压力。
-- 自动打标签功能依赖本地运行的 LM Studio，LLM 推理耗时受本机硬件影响（Gemma4-12B 单篇约 2-8 分钟，建议在不使用电脑时后台运行）。
+- 自动打标签功能依赖本地运行的 LM Studio，推荐使用 **Qwen2.5-3B-Instruct (MLX)**（单篇推理约 15-20 秒，内存占用仅 1.75GB，可静默后台运行）。

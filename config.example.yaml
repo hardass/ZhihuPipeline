@@ -39,8 +39,8 @@ tagger:
   enabled: false                   # Global toggle: false = download only, no tagging
   backend: "local"                 # "local" (LM Studio) | "gemini" (Not implemented yet)
   lm_studio_url: "http://localhost:1234"
-  model: "gemma4-12b-qat-uncensored-hauhaucs-balanced"
-  timeout: 600                     # Local inference timeout (seconds)
+  model: "qwen2.5-3b-instruct-mlx"
+  timeout: 120                     # Local inference timeout (seconds)
   valid_domains:
     - AI
     - Product
