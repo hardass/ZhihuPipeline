@@ -1,6 +1,36 @@
-import asyncio
+from typing import Union
 from loguru import logger
 from playwright.async_api import Page
+
+async def remove_from_collection(
+    page: Page,
+    collection_id: Union[int, str],
+    item_id: Union[int, str],
+    item_type: str
+) -> bool:
+    """
+    Remove an item directly from a specific Zhihu collection via internal API.
+    """
+    try:
+        res = await page.evaluate("""
+            async ({ colId, itemId, itemType }) => {
+                try {
+                    const url = `https://www.zhihu.com/api/v4/collections/${colId}/contents/${itemId}?content_type=${itemType}`;
+                    const resp = await fetch(url, { method: 'DELETE' });
+                    if (resp.status === 200) {
+                        const data = await resp.json();
+                        return data.success === true;
+                    }
+                    return false;
+                } catch (err) {
+                    return false;
+                }
+            }
+        """, {"colId": str(collection_id), "itemId": str(item_id), "itemType": item_type})
+        return bool(res)
+    except Exception as e:
+        logger.error(f"Failed to remove item {item_type} {item_id} from collection {collection_id}: {e}")
+        return False
 
 async def archive_item(
     page: Page,

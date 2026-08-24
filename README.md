@@ -154,7 +154,8 @@ graph TD
 | [images.py](src/zhihu_pipeline/images.py) | 超清图片下载、URL 编码路径改写 |
 | [comments.py](src/zhihu_pipeline/comments.py) | 热门评论提取，HTML `<details>` 折叠排版 |
 | [storage.py](src/zhihu_pipeline/storage.py) | Frontmatter 生成、manifest.json 维护、代码块防御 |
-| [archiver.py](src/zhihu_pipeline/archiver.py) | 知乎端自动归档弹窗操作 |
+| [archiver.py](src/zhihu_pipeline/archiver.py) | 知乎端原生 API 移除收藏（Inbox 模式消费） |
+| [cleaner.py](src/zhihu_pipeline/cleaner.py) | 批量清空或删除知乎端指定收藏夹 |
 | [tagger.py](src/zhihu_pipeline/tagger.py) | LLM 三维分类推理、三层 Guardrail 清洗、断点重试调度 |
 
 ---
@@ -187,13 +188,13 @@ chrome:
 
 # Sync Settings
 sync:
-  collections: "all"              # "all" or a list of collection names, e.g. ["Default Collection", "Hack"]
+  collections: "all"              # "all" or a list of collection names, e.g. ["我的收藏", "Hack"]
   include_comments: true          # Whether to fetch comments
   max_comments: 20
   delay_min: 3                    # Delay between requests (seconds), recommended min 3
   delay_max: 8
-  auto_archive: true              # Automatically move to archive collection after successful sync
-  archive_name: "archive"
+  remove_after_sync: true         # Automatically remove item from collection after download (Inbox queue pattern)
+  auto_archive: false             # Deprecated (set to false)
 
 # Obsidian Output
 output:
@@ -214,14 +215,14 @@ tagger:
 
 ## 🚀 运行指南
 
-### 同步收藏夹
+### 同步收藏夹（Inbox 消费模式）
 
 ```bash
-# 全量同步（自动打标签，如 tagger.enabled=true）
+# 全量同步（下载成功后自动移出知乎收藏夹，并自动打标签）
 ./sync.sh
 
 # 仅同步指定收藏夹
-./sync.sh --collection "Hack"
+./sync.sh --collection "我的收藏"
 
 # 强制重新拉取所有内容（忽略 manifest）
 ./sync.sh --full
@@ -233,13 +234,25 @@ tagger:
 
 ```bash
 # 对所有 pending/failed 的文章进行打标（自动重试上次失败的）
-uv run -m zhihu_pipeline tag
+uv run python -m zhihu_pipeline tag
 
 # 预览将要打标的文章，不实际调用 LLM
-uv run -m zhihu_pipeline tag --dry-run
+uv run python -m zhihu_pipeline tag --dry-run
 
 # 强制对所有文章重新打标（包括已成功的）
-uv run -m zhihu_pipeline tag --force
+uv run python -m zhihu_pipeline tag --force
+```
+
+### 清理 / 删除指定收藏夹
+
+如需对知乎线上的某个收藏夹进行快速清理或彻底删除：
+
+```bash
+# 默认删除名为 "archive" 的收藏夹
+uv run python -m zhihu_pipeline clear-archive
+
+# 删除或清空指定名称的收藏夹
+uv run python -m zhihu_pipeline clear-archive --collection "临时收藏"
 ```
 
 ---
@@ -253,10 +266,10 @@ uv run -m zhihu_pipeline tag --force
 │       ├── file-20260302134512001.jpg
 │       └── file-20260302134512002.jpg
 └── 知乎收藏/
-    ├── 归档/                            # 扁平归档，auto_archive 后的所有文章
+    ├── 我的收藏/                        # 按收藏夹分类存储的文章
     │   ├── 2026-03-02 【硬核干货】扔掉BM25，拥抱稀疏向量.md
     │   ├── 2026-06-29 量化交易的本质完完全全就是统计学吗？.md
-    │   └── ...（250+ 篇，Dataview 动态查询）
+    │   └── ...
     └── manifest.json                    # 增量同步 + 打标状态数据库
 ```
 

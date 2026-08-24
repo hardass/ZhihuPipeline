@@ -11,8 +11,8 @@ sync:
   max_comments: 20                # Max comments to fetch per item
   delay_min: 3                    # Minimum delay between requests in seconds
   delay_max: 8                    # Maximum delay between requests in seconds
-  auto_archive: false             # Automatically move to archive collection after successful sync
-  archive_name: "archive"         # Name of the archive collection
+  remove_after_sync: true         # Automatically remove item from collection after download (Inbox queue pattern)
+  auto_archive: false             # Deprecated (set to false)
 
 # Obsidian Output
 output:

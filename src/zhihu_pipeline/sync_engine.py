@@ -10,7 +10,7 @@ from zhihu_pipeline.parser import html_to_markdown
 from zhihu_pipeline.images import download_images
 from zhihu_pipeline.comments import fetch_comments
 from zhihu_pipeline.storage import ManifestManager, generate_markdown, save_markdown_file, sanitize_filename
-from zhihu_pipeline.archiver import archive_item
+from zhihu_pipeline.archiver import archive_item, remove_from_collection
 from zhihu_pipeline.tagger import run_tagging_pass
 
 class SyncEngine:
@@ -166,7 +166,19 @@ class SyncEngine:
 
                 unique_key = f"{item_type}_{item_id}"
                 if not full_sync and self.manifest.is_synced(unique_key):
-                    if self.config.sync.auto_archive:
+                    if self.config.sync.remove_after_sync:
+                        logger.info(f"'{item['title']}' is already synced locally. Removing from collection '{col_title}'...")
+                        try:
+                            removed = await remove_from_collection(page, col_id, item_id, item_type)
+                            if removed:
+                                logger.info(f"Successfully removed previously synced item from '{col_title}'.")
+                            else:
+                                logger.warning(f"Could not remove previously synced item from '{col_title}'.")
+                            delay = random.uniform(self.config.sync.delay_min, self.config.sync.delay_max)
+                            await asyncio.sleep(delay)
+                        except Exception as e:
+                            logger.error(f"Failed to remove previously synced item '{item['title']}': {e}")
+                    elif self.config.sync.auto_archive:
                         logger.info(f"'{item['title']}' is already synced locally, but remains in active collection. Archiving now...")
                         try:
                             await page.goto(item["url"], wait_until="domcontentloaded", timeout=20000)
@@ -269,8 +281,22 @@ class SyncEngine:
                         "collection": col_title
                     }, tagging_status=initial_tagging_status)
 
-                    # Auto-archive if enabled
-                    if self.config.sync.auto_archive:
+                    # Remove from collection if remove_after_sync is enabled (Inbox queue pattern)
+                    if self.config.sync.remove_after_sync:
+                        try:
+                            removed = await remove_from_collection(
+                                page=page,
+                                collection_id=col_id,
+                                item_id=item_id,
+                                item_type=item_type
+                            )
+                            if removed:
+                                logger.info(f"Successfully removed '{item_title}' from collection '{col_title}'.")
+                            else:
+                                logger.warning(f"Could not remove '{item_title}' from collection '{col_title}'.")
+                        except Exception as re_err:
+                            logger.error(f"Error removing item '{item_title}' from collection: {re_err}")
+                    elif self.config.sync.auto_archive:
                         try:
                             archived = await archive_item(
                                 page=page,

@@ -6,7 +6,7 @@ from zhihu_pipeline.config import load_config
 from zhihu_pipeline.parser import html_to_markdown
 from zhihu_pipeline.images import download_images
 
-async def test():
+async def run_pipeline_test():
     config = load_config()
     print("Loading config...")
     print(f"Chrome remote debugging port: {config.chrome.debug_port}")
@@ -90,4 +90,4 @@ async def test():
         print("\n[WARNING] Please login to Zhihu in your Chrome window first, then run this test again.")
 
 if __name__ == "__main__":
-    asyncio.run(test())
+    asyncio.run(run_pipeline_test())

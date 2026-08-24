@@ -77,5 +77,30 @@ def tag(dry_run, force):
     if fail > 0:
         logger.info("Failed articles have been marked as 'failed' and will be retried next time the 'tag' command is run.")
 
+@cli.command("clear-archive")
+@click.option("--collection", default="archive", help="Collection title or numeric ID to clear (defaults to 'archive').")
+def clear_archive(collection):
+    """Batch remove all items from a Zhihu collection (defaults to 'archive')."""
+    config = load_config()
+    engine = SyncEngine(config)
+
+    async def _run():
+        browser, context = await engine.ensure_chrome_connected()
+        from zhihu_pipeline.auth import get_or_create_page, check_login
+        page = await get_or_create_page(context)
+        logged_in, username = await check_login(page)
+        if not logged_in:
+            logger.error("You must be logged in to Zhihu in Chrome to clear collection contents.")
+            return
+
+        from zhihu_pipeline.cleaner import delete_collection
+        result = await delete_collection(page, target_name_or_id=collection)
+        print(f"\n=== 操作完成 ===")
+        print(f"状态: {result.get('status')}")
+        print(f"目标收藏夹: {result.get('collection_title')} (ID: {result.get('collection_id', 'N/A')})\n")
+
+    asyncio.run(_run())
+
 if __name__ == "__main__":
     cli()
+
