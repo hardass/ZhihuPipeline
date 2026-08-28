@@ -18,8 +18,8 @@ git:
   enabled: false                                     # Set to true to enable auto git pull/push
   repo_url: "https://<USERNAME>:<PAT_OR_TOKEN>@github.com/<USERNAME>/<REPO>.git"
   branch: "main"
-  user_name: "hardass"
-  user_email: "hardas.yang@gmail.com"
+  user_name: "YOUR_GITHUB_USERNAME"
+  user_email: "YOUR_GITHUB_EMAIL"
   auto_pull: true                                    # Pull latest notes before downloading
   auto_push: true                                    # Push new notes and assets after downloading
 

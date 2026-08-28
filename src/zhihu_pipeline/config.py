@@ -84,8 +84,8 @@ class GitConfig:
     enabled: bool = False
     repo_url: str = ""
     branch: str = "main"
-    user_name: str = "hardass"
-    user_email: str = "hardas.yang@gmail.com"
+    user_name: str = ""
+    user_email: str = ""
     auto_pull: bool = True
     auto_push: bool = True
 
