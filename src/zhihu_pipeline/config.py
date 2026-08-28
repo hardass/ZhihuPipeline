@@ -7,6 +7,18 @@ from loguru import logger
 @dataclass
 class ChromeConfig:
     debug_port: int = 9222
+    user_data_dir: str = "~/.zhihu_pipeline/chrome_profile"
+    headless: bool = False
+
+    def __post_init__(self):
+        self.user_data_dir = os.path.abspath(os.path.expanduser(self.user_data_dir))
+
+@dataclass
+class TelegramConfig:
+    enabled: bool = True
+    bot_token: str = ""
+    chat_id: str = ""
+    timeout: int = 300  # QR scan wait timeout (seconds)
 
 @dataclass
 class SyncConfig:
@@ -18,6 +30,9 @@ class SyncConfig:
     remove_after_sync: bool = True  # Automatically remove item from collection after successful local download
     auto_archive: bool = False      # Deprecated: kept for backward compatibility
     archive_name: str = "archive"   # Deprecated: kept for backward compatibility
+    schedule_enabled: bool = True
+    schedule_interval_hours: float = 2.0
+    schedule_jitter_minutes: float = 25.0
 
 @dataclass
 class OutputConfig:
@@ -65,8 +80,20 @@ class SelectorsConfig:
     ))
 
 @dataclass
+class GitConfig:
+    enabled: bool = False
+    repo_url: str = ""
+    branch: str = "main"
+    user_name: str = "hardass"
+    user_email: str = "hardas.yang@gmail.com"
+    auto_pull: bool = True
+    auto_push: bool = True
+
+@dataclass
 class Config:
     chrome: ChromeConfig = field(default_factory=ChromeConfig)
+    telegram: TelegramConfig = field(default_factory=TelegramConfig)
+    git: GitConfig = field(default_factory=GitConfig)
     sync: SyncConfig = field(default_factory=SyncConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     tagger: TaggerConfig = field(default_factory=TaggerConfig)
@@ -85,13 +112,22 @@ def load_config(config_path: str = "config.yaml") -> Config:
         data = {}
 
     chrome_data = data.get("chrome") or {}
+    telegram_data = data.get("telegram") or {}
     sync_data = data.get("sync") or {}
     output_data = data.get("output") or {}
     tagger_data = data.get("tagger") or {}
     selectors_data = data.get("selectors") or {}
 
     chrome = ChromeConfig(
-        debug_port=chrome_data.get("debug_port", 9222)
+        debug_port=int(os.environ.get("CHROME_DEBUG_PORT", chrome_data.get("debug_port", 9222))),
+        user_data_dir=os.environ.get("CHROME_USER_DATA_DIR", chrome_data.get("user_data_dir", "~/.zhihu_pipeline/chrome_profile")),
+        headless=bool(chrome_data.get("headless", False))
+    )
+    telegram = TelegramConfig(
+        enabled=bool(telegram_data.get("enabled", True)),
+        bot_token=str(os.environ.get("TELEGRAM_BOT_TOKEN", telegram_data.get("bot_token", ""))),
+        chat_id=str(os.environ.get("TELEGRAM_CHAT_ID", telegram_data.get("chat_id", ""))),
+        timeout=int(telegram_data.get("timeout", 300))
     )
     sync = SyncConfig(
         collections=sync_data.get("collections", "all"),
@@ -101,10 +137,13 @@ def load_config(config_path: str = "config.yaml") -> Config:
         delay_max=float(sync_data.get("delay_max", 8.0)),
         remove_after_sync=sync_data.get("remove_after_sync", True),
         auto_archive=sync_data.get("auto_archive", False),
-        archive_name=sync_data.get("archive_name", "archive")
+        archive_name=sync_data.get("archive_name", "archive"),
+        schedule_enabled=bool(sync_data.get("schedule_enabled", True)),
+        schedule_interval_hours=float(sync_data.get("schedule_interval_hours", 2.0)),
+        schedule_jitter_minutes=float(sync_data.get("schedule_jitter_minutes", 25.0))
     )
     output = OutputConfig(
-        vault_path=output_data.get("vault_path", "~/notes"),
+        vault_path=os.environ.get("OUTPUT_VAULT_PATH", output_data.get("vault_path", "~/notes")),
         collection_dir=output_data.get("collection_dir", "知乎收藏"),
         image_naming=output_data.get("image_naming", "file-${date:YYYYMMDDHHmmssSSS}")
     )
@@ -117,8 +156,21 @@ def load_config(config_path: str = "config.yaml") -> Config:
         valid_domains=tagger_data.get("valid_domains", TaggerConfig().valid_domains)
     )
 
+    git_data = data.get("git") or {}
+    git = GitConfig(
+        enabled=bool(os.environ.get("GIT_ENABLED", git_data.get("enabled", False))),
+        repo_url=str(os.environ.get("GIT_REPO_URL", git_data.get("repo_url", ""))),
+        branch=str(os.environ.get("GIT_BRANCH", git_data.get("branch", "main"))),
+        user_name=str(os.environ.get("GIT_USER_NAME", git_data.get("user_name", "hardass"))),
+        user_email=str(os.environ.get("GIT_USER_EMAIL", git_data.get("user_email", "hardas.yang@gmail.com"))),
+        auto_pull=bool(git_data.get("auto_pull", True)),
+        auto_push=bool(git_data.get("auto_push", True))
+    )
+
     return Config(
         chrome=chrome,
+        telegram=telegram,
+        git=git,
         sync=sync,
         output=output,
         tagger=tagger,

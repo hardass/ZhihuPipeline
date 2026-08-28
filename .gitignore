@@ -45,6 +45,7 @@ htmlcov/
 
 # Local Configuration (sensitive and personal paths)
 config.yaml
+.env
 
 # Git Worktrees
 .worktrees/
@@ -52,4 +53,8 @@ config.yaml
 # Media & Scraping scratch files
 video_info.json
 yt_venv/
+zhihu_qr.png
+chrome_profile/
+notes/
+*.log
 

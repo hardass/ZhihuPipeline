@@ -85,21 +85,40 @@ def clear_archive(collection):
     engine = SyncEngine(config)
 
     async def _run():
-        browser, context = await engine.ensure_chrome_connected()
-        from zhihu_pipeline.auth import get_or_create_page, check_login
-        page = await get_or_create_page(context)
-        logged_in, username = await check_login(page)
-        if not logged_in:
-            logger.error("You must be logged in to Zhihu in Chrome to clear collection contents.")
-            return
+        context = await engine.get_browser_context()
+        try:
+            from zhihu_pipeline.auth import get_or_create_page, check_login
+            page = await get_or_create_page(context)
+            logged_in, username = await check_login(page)
+            if not logged_in:
+                logger.error("You must be logged in to Zhihu to clear collection contents.")
+                return
 
-        from zhihu_pipeline.cleaner import delete_collection
-        result = await delete_collection(page, target_name_or_id=collection)
-        print(f"\n=== 操作完成 ===")
-        print(f"状态: {result.get('status')}")
-        print(f"目标收藏夹: {result.get('collection_title')} (ID: {result.get('collection_id', 'N/A')})\n")
+            from zhihu_pipeline.cleaner import delete_collection
+            result = await delete_collection(page, target_name_or_id=collection)
+            print(f"\n=== 操作完成 ===")
+            print(f"状态: {result.get('status')}")
+            print(f"目标收藏夹: {result.get('collection_title')} (ID: {result.get('collection_id', 'N/A')})\n")
+        finally:
+            await context.close()
 
-    asyncio.run(_run())
+@cli.command()
+def bot():
+    """Run interactive Telegram Bot daemon (long-polling mode)."""
+    from zhihu_pipeline.bot import TelegramBotDaemon
+    config = load_config()
+    daemon = TelegramBotDaemon(config)
+    
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    try:
+        loop.run_until_complete(daemon.run_polling())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Bot daemon interrupted by user.")
+    finally:
+        daemon.stop()
+        loop.close()
 
 if __name__ == "__main__":
     cli()

@@ -1,8 +1,27 @@
 # Zhihu Collection Pipeline Example Config File (Copy and rename to config.yaml)
 
-# Chrome Connection
+# Chrome & Browser Connection
 chrome:
-  debug_port: 9222
+  user_data_dir: "~/.zhihu_pipeline/chrome_profile"  # Directory where browser login cookies/context are saved
+  headless: false                                    # Set to false for Xvfb in Docker to avoid anti-bot blocks
+  debug_port: 9222                                   # Deprecated fallback port
+
+# Telegram Notification (Auto Push QR Code when login expires & Remote Bot Control)
+telegram:
+  enabled: true                                      # Enable Telegram push notifications
+  bot_token: "YOUR_TELEGRAM_BOT_TOKEN"               # Obtained from @BotFather
+  chat_id: "YOUR_TELEGRAM_CHAT_ID"                   # Obtained from @userinfobot
+  timeout: 300                                       # Maximum wait time for QR code scanning in seconds
+
+# GitHub Auto-Sync (Automatically pushes notes & assets to your remote GitHub notes repository)
+git:
+  enabled: false                                     # Set to true to enable auto git pull/push
+  repo_url: "https://<USERNAME>:<PAT_OR_TOKEN>@github.com/<USERNAME>/<REPO>.git"
+  branch: "main"
+  user_name: "hardass"
+  user_email: "hardas.yang@gmail.com"
+  auto_pull: true                                    # Pull latest notes before downloading
+  auto_push: true                                    # Push new notes and assets after downloading
 
 # Sync Settings
 sync:
@@ -13,6 +32,9 @@ sync:
   delay_max: 8                    # Maximum delay between requests in seconds
   remove_after_sync: true         # Automatically remove item from collection after download (Inbox queue pattern)
   auto_archive: false             # Deprecated (set to false)
+  schedule_enabled: true          # Enable background automated periodic sync
+  schedule_interval_hours: 2.0    # Average base interval in hours
+  schedule_jitter_minutes: 25.0   # Random interval jitter (±25m) to avoid periodic crawling patterns
 
 # Obsidian Output
 output:
