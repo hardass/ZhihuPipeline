@@ -160,15 +160,16 @@ def ensure_code_blocks_fenced(body_text: str) -> str:
 
 
 # ============================================================
-# LM Studio API Call
+# LLM API Call
 # ============================================================
 
-def call_lm_studio(content: str, cfg, pbar=None) -> dict:
+def call_llm_api(content: str, cfg, pbar=None) -> dict:
     """
-    Calls local LM Studio API via HTTPX.
+    Calls an OpenAI-compatible LLM API via HTTPX.
+    Works natively with Ollama's OpenAI compatibility layer or remote APIs.
     Returns a validated, sanitized metadata dict.
     """
-    url = f"{cfg.lm_studio_url.rstrip('/')}/v1/chat/completions"
+    url = f"{cfg.base_url.rstrip('/')}/chat/completions"
 
     user_prompt = USER_PROMPT_TEMPLATE.format(
         domains=json.dumps(VALID_DOMAINS),
@@ -177,7 +178,7 @@ def call_lm_studio(content: str, cfg, pbar=None) -> dict:
     )
 
     payload = {
-        "model": cfg.model,
+        "model": getattr(cfg, "model", "qwen2.5:3b"),
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt}
@@ -185,10 +186,14 @@ def call_lm_studio(content: str, cfg, pbar=None) -> dict:
         "stream": True
     }
 
+    headers = {}
+    if hasattr(cfg, "api_key") and cfg.api_key:
+        headers["Authorization"] = f"Bearer {cfg.api_key}"
+
     full_text = ""
     # trust_env=False prevents HTTPX from using local system proxies for localhost requests.
     with httpx.Client(timeout=cfg.timeout, trust_env=False) as client:
-        with client.stream("POST", url, json=payload) as response:
+        with client.stream("POST", url, json=payload, headers=headers) as response:
             response.raise_for_status()
             for line in response.iter_lines():
                 if line.startswith("data: "):
@@ -273,7 +278,7 @@ def tag_single_file(file_path: str, cfg, pbar=None) -> bool:
 
     # Call Local LLM
     try:
-        result = call_lm_studio(body, cfg, pbar=pbar)
+        result = call_llm_api(body, cfg, pbar=pbar)
 
         # Inject classifications (already sanitized inside call_lm_studio)
         frontmatter["domain"] = result["domain"]
@@ -315,26 +320,6 @@ def tag_single_file(file_path: str, cfg, pbar=None) -> bool:
 # Batch Tagging Pass
 # ============================================================
 
-def ensure_model_loaded(model_name: str) -> bool:
-    """
-    Check if the required local model is loaded in LM Studio via the `lms` CLI.
-    If not, attempt to silently load it.
-    """
-    import subprocess
-    try:
-        res = subprocess.run(["lms", "ps"], capture_output=True, text=True)
-        if model_name not in res.stdout:
-            logger.info(f"Local model {model_name} not loaded, attempting to load via lms CLI...")
-            subprocess.run(["lms", "load", model_name, "--yes"], check=True, stdout=subprocess.DEVNULL)
-            logger.info("Model loaded successfully in the background!")
-            return True
-        else:
-            logger.info(f"Model {model_name} is already loaded in memory.")
-            return True
-    except Exception as e:
-        logger.warning(f"Failed to auto-load local model (ensure lms CLI is installed and in PATH): {e}")
-        return False
-
 def run_tagging_pass(manifest, vault_path: str, cfg) -> tuple:
     """
     Finds all pending or failed files in the manifest and attempts to tag them.
@@ -345,12 +330,7 @@ def run_tagging_pass(manifest, vault_path: str, cfg) -> tuple:
         logger.info("No pending or failed files found for tagging.")
         return 0, 0
 
-    logger.info(f"Starting tagging pass for {len(pending_items)} files...")
-
-    if hasattr(cfg, "model") and cfg.model:
-        if not ensure_model_loaded(cfg.model):
-            logger.error("Aborting tagging pass because the model failed to load.")
-            return 0, 0
+    logger.info(f"Starting tagging pass for {len(pending_items)} files using backend {cfg.base_url} (Model: {cfg.model})...")
 
     success_count = 0
     fail_count = 0

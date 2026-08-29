@@ -5,7 +5,7 @@ from zhihu_pipeline.config import TaggerConfig
 from zhihu_pipeline.storage import ManifestManager, generate_markdown
 from zhihu_pipeline.tagger import (
     tag_single_file,
-    call_lm_studio,
+    call_llm_api,
     sanitize_term,
     sanitize_metadata,
     ensure_code_blocks_fenced,

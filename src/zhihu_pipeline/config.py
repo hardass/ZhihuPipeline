@@ -47,8 +47,8 @@ class OutputConfig:
 class TaggerConfig:
     enabled: bool = False
     backend: str = "local"
-    lm_studio_url: str = "http://localhost:1234"
-    model: str = "qwen2.5-3b-instruct-mlx"
+    base_url: str = "http://localhost:11434/v1"
+    model: str = "qwen2.5:3b"
     timeout: int = 120
     valid_domains: List[str] = field(default_factory=lambda: [
         "AI", "Product", "Engineering", "Career", "Finance",
@@ -150,8 +150,8 @@ def load_config(config_path: str = "config.yaml") -> Config:
     tagger = TaggerConfig(
         enabled=tagger_data.get("enabled", False),
         backend=tagger_data.get("backend", "local"),
-        lm_studio_url=tagger_data.get("lm_studio_url", "http://localhost:1234"),
-        model=tagger_data.get("model", "qwen2.5-3b-instruct-mlx"),
+        base_url=tagger_data.get("base_url", "http://localhost:11434/v1"),
+        model=tagger_data.get("model", "qwen2.5:3b"),
         timeout=int(tagger_data.get("timeout", 120)),
         valid_domains=tagger_data.get("valid_domains", TaggerConfig().valid_domains)
     )

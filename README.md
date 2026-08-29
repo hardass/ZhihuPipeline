@@ -125,12 +125,13 @@ output:
   collection_dir: "知乎收藏"
   image_naming: "file-${date:YYYYMMDDHHmmssSSS}"
 
-# Auto-tagging (可选，接入本地大模型)
+# Auto-tagging (可选，接入本地 Ollama 或云端 API)
 tagger:
   enabled: false                                     # true 开启自动打标签
-  backend: "local"
-  lm_studio_url: "http://localhost:1234"
-  model: "qwen2.5-3b-instruct-mlx"
+  backend: "openai_compatible"
+  base_url: "http://localhost:11434/v1"              # Ollama 默认地址
+  model: "qwen2.5:3b"
+  api_key: ""                                        # 若使用云端大模型需填写 API Key
 ```
 
 ---
