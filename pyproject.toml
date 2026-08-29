@@ -1,6 +1,6 @@
 [project]
 name = "zhihu-pipeline"
-version = "2.0.0"
+version = "2.0.1"
 description = "Production-grade Zhihu collections to Obsidian knowledge pipeline with Telegram Bot, Docker, and GitHub Auto-Sync"
 readme = "README.md"
 requires-python = ">=3.10"

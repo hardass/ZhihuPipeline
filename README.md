@@ -21,9 +21,11 @@
 | 特性 | 详情说明 |
 |---|---|
 | 🌐 **GitHub 自动双向推送** | 抓取落盘后自动 `git add & commit & push` 到 GitHub 笔记库，跨设备 Obsidian 无缝拉取 |
+| 📥 **Inbox 消费与自动出队** | 下载成功后**全自动通过 UI 交互取消勾选对应收藏夹**，彻底避免知乎 API 签名（x-zse-96/403）拦截 |
 | 🤖 **Telegram 守护模式** | 容器常驻后台，在手机 Telegram 发送 `/sync` 即可随时拉起同步，发送 `/status` 查看统计 |
+| ⏰ **反爬随机抖动定时巡检** | 每隔 ~2 小时自动后台巡检，并施加 `±25m` 高斯随机噪声，彻底抹除周期性访问特征 |
 | 📲 **二维码自动接力** | 登录失效时，后台自动截取登录二维码推送到 Telegram，手机知乎扫码后自动继续同步 |
-| 🛡️ **无感反爬与有头虚拟屏** | 内置 Xvfb 虚拟屏幕渲染，Playwright 以有头模式在内存中运行，彻底规避知乎无头浏览器风控 |
+| 🛡️ **无感反爬与有头虚拟屏** | 内置 Xvfb 虚拟屏幕渲染（支持锁文件自愈与热挂载），Playwright 以有头模式在内存中运行，彻底规避知乎无头浏览器风控 |
 | 📸 **高清图片全本地化** | 自动升级为 `_1440w` 超清图片下载、URL 编码路径（防 Obsidian 空格裂图）、存入统一 `assets/` |
 | 💬 **热门评论折叠排版** | 前 20 条热门评论以原生 HTML `<details>` 标签折叠，在 Obsidian 中渲染精美 |
 | ⚡ **增量同步与快速退避** | `manifest.json` 记录同步历史，404 文章 0.1 秒快退标记，绝不重复请求 |
@@ -68,7 +70,7 @@ flowchart TD
     Lock -->|拉起抓取| Engine
     Engine --> Xvfb
     Xvfb --> Playwright
-    Playwright -->|抓取知乎| Engine
+    Playwright -->|抓取知乎 & 自动出队| Engine
     Engine -->|写入 Markdown & 高清插图| Vault
     Vault -->|自动提交与推送| Git
     Git -->|git push| GitHub
@@ -98,10 +100,10 @@ telegram:
 # GitHub 自动双向同步
 git:
   enabled: true                                      # 开启后每次同步自动 pull/push 到 GitHub
-  repo_url: "https://<USER>:<TOKEN>@github.com/hardass/notes.git"
+  repo_url: "https://<USER>:<TOKEN>@github.com/<USER>/<REPO>.git"
   branch: "main"
-  user_name: "hardass"
-  user_email: "hardas.yang@gmail.com"
+  user_name: "YOUR_GITHUB_USERNAME"
+  user_email: "YOUR_GITHUB_EMAIL"
   auto_pull: true
   auto_push: true
 
@@ -113,6 +115,9 @@ sync:
   delay_min: 3                                       # 请求间隔延时 (秒)，防风控
   delay_max: 8
   remove_after_sync: true                            # 抓取成功后自动从知乎收藏夹移除 (Inbox 消费模式)
+  schedule_enabled: true                             # 开启后台周期性定时巡检
+  schedule_interval_hours: 2.0                       # 巡检基准间隔 (小时)
+  schedule_jitter_minutes: 25.0                      # 反爬随机抖动范围 (±25分钟)
 
 # Obsidian Output
 output:
@@ -150,6 +155,9 @@ tagger:
    ```bash
    # 查看实时日志
    docker compose logs -f
+   
+   # 重启容器 (自动清理并重载 Xvfb 虚拟屏幕与代码)
+   docker compose restart
    
    # 单次执行手动同步 (非常驻模式)
    docker compose run --rm zhihu-pipeline sync
@@ -210,4 +218,4 @@ tagger:
 ```bash
 PYTHONPATH=src pytest -v
 ```
-涵盖 Telegram 消息/图片 Mock 推送、扫码登录流、DOM 登录识别、HTML 清洗与 Markdown 转换、AI 标签清洗 Guardrail、Telegram Bot 指令路由及 GitHub 自动双向同步测试（37 项测试用例 100% 通过）。
+涵盖 Telegram 消息/图片 Mock 推送、扫码登录流、DOM 登录识别、HTML 清洗与 Markdown 转换、AI 标签清洗 Guardrail、Telegram Bot 指令路由、GitHub 自动双向同步及 UI 自动化收藏夹出队测试（**39 项测试用例 100% 通过**）。
