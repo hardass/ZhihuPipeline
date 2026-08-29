@@ -11,8 +11,9 @@ services:
       - CHROME_USER_DATA_DIR=/app/chrome_profile
       - OUTPUT_VAULT_PATH=/app/notes
     volumes:
-      # Source code live mount
+      # Source code and entrypoint live mount
       - ./src:/app/src
+      - ./entrypoint.sh:/app/entrypoint.sh
       # Persistent browser profile (preserves login cookies & session)
       - ./chrome_profile:/app/chrome_profile
       # Configuration

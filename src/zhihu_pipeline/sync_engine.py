@@ -49,7 +49,7 @@ class SyncEngine:
             context = await self.get_browser_context()
         except Exception as e:
             logger.error(f"Cannot launch browser context: {e}")
-            return
+            raise RuntimeError(f"Cannot launch browser context: {e}")
             
         try:
             page = await get_or_create_page(context)
@@ -61,7 +61,7 @@ class SyncEngine:
                 logged_in, username = await handle_qr_login(page, self.config.telegram)
                 if not logged_in:
                     logger.error("QR login failed or timed out. Aborting sync.")
-                    return
+                    raise RuntimeError("QR code login failed or timed out.")
                 
             logger.info(f"Login verified. Active user: {username}")
 
