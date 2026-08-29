@@ -107,7 +107,12 @@ async def clear_collection_contents(
         
         logger.info(f"[{idx+1}/{total_items}] Removing: {item_title} ({item_type} {item_id})...")
         
-        success = await remove_from_collection(page, col_id, item_id, item_type)
+        success = await remove_from_collection(
+            page=page,
+            collection_title=col_title,
+            item_type=item_type,
+            item_url=item.get("url")
+        )
         if success:
             removed_count += 1
             logger.info(f"[{idx+1}/{total_items}] Successfully removed: {item_title}")

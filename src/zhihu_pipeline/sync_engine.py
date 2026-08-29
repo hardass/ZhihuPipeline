@@ -154,7 +154,12 @@ class SyncEngine:
                         if self.config.sync.remove_after_sync:
                             logger.info(f"'{item['title']}' is already synced locally. Removing from collection '{col_title}'...")
                             try:
-                                removed = await remove_from_collection(page, col_id, item_id, item_type)
+                                removed = await remove_from_collection(
+                                    page=page,
+                                    collection_title=col_title,
+                                    item_type=item_type,
+                                    item_url=item.get("url")
+                                )
                                 if removed:
                                     logger.info(f"Successfully removed previously synced item from '{col_title}'.")
                                 else:
@@ -270,8 +275,7 @@ class SyncEngine:
                             try:
                                 removed = await remove_from_collection(
                                     page=page,
-                                    collection_id=col_id,
-                                    item_id=item_id,
+                                    collection_title=col_title,
                                     item_type=item_type
                                 )
                                 if removed:
