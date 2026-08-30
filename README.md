@@ -1,222 +1,92 @@
-# 知乎收藏夹 → Obsidian 本地知识库 Pipeline (Telegram Bot & Docker 强化版)
+# 🚀 从吃灰收藏夹到私人知识智库：ZhihuPipeline 终极全自动指南
 
-一个将知乎收藏夹中的**回答和专栏文章**全自动拉取、深度本地化，并通过本地大模型进行**三维知识标签分类**的增量同步系统。支持 **Telegram 机器人交互触发**、**二维码自动扫码接力** 及 **Docker 容器化无人值守部署（支持 QNAP NAS / Linux VPS）**。
+你是不是也经常这样：
+在地铁上、马桶上、睡觉前，刷到一篇惊为天人的知乎回答，激动地点下 **“★收藏”**。心里默念着“周末一定拿出来仔细复习”，然后……这篇干货就永远躺在收藏夹的黑洞里，吃灰到老？
 
-最终输出**可被 Obsidian Dataview 动态查询的结构化知识库**。
-
----
-
-## 💡 为什么需要这个工具？
-
-### 1. 从"碎片收藏"到"系统知识"
-在地铁或午休时刷到优质专栏和回答，随手一收藏——但收藏夹里堆了几百篇文章，却从未再被打开过。本工具把"收藏即遗忘"的黑洞，改造成**自动运转的知识入库流水线**：
-
-- 📱 **知乎收藏夹** = 你的“收件箱（Inbox）”
-- 🤖 **Telegram 机器人** = 你的手机“远程遥控器”，随时发送 `/sync` 触发抓取
-- 🖥️ **Obsidian 本地库** = 你的“知识资产数据库”
-- 🧠 **本地大模型** = 自动帮你打标签的智能分类员
-
-### 2. 核心特性矩阵
-
-| 特性 | 详情说明 |
-|---|---|
-| 🌐 **GitHub 自动双向推送** | 抓取落盘后自动 `git add & commit & push` 到 GitHub 笔记库，跨设备 Obsidian 无缝拉取 |
-| 📥 **Inbox 消费与自动出队** | 下载成功后**全自动通过 UI 交互取消勾选对应收藏夹**，彻底避免知乎 API 签名（x-zse-96/403）拦截 |
-| 🤖 **Telegram 守护模式** | 容器常驻后台，在手机 Telegram 发送 `/sync` 即可随时拉起同步，发送 `/status` 查看统计 |
-| ⏰ **反爬随机抖动定时巡检** | 每隔 ~2 小时自动后台巡检，并施加 `±25m` 高斯随机噪声，彻底抹除周期性访问特征 |
-| 📲 **二维码自动接力** | 登录失效时，后台自动截取登录二维码推送到 Telegram，手机知乎扫码后自动继续同步 |
-| 🛡️ **无感反爬与有头虚拟屏** | 内置 Xvfb 虚拟屏幕渲染（支持锁文件自愈与热挂载），Playwright 以有头模式在内存中运行，彻底规避知乎无头浏览器风控 |
-| 📸 **高清图片全本地化** | 自动升级为 `_1440w` 超清图片下载、URL 编码路径（防 Obsidian 空格裂图）、存入统一 `assets/` |
-| 💬 **热门评论折叠排版** | 前 20 条热门评论以原生 HTML `<details>` 标签折叠，在 Obsidian 中渲染精美 |
-| ⚡ **增量同步与快速退避** | `manifest.json` 记录同步历史，404 文章 0.1 秒快退标记，绝不重复请求 |
-| 🏷️ **AI 三维标签系统** | 接入本地 LLM (如 LM Studio / Qwen2.5) 提取 `domain`、`concept`、`level`、`summary` |
+**“收藏即遗忘”**，这是这个时代信息焦虑的绝症。
+但今天，我要向你隆重介绍一副彻底治愈它的猛药——**ZhihuPipeline 混合架构引擎**！
 
 ---
 
-## 📱 Telegram 机器人交互指令
+## 💡 为什么它能改变你的知识焦虑？
 
-在 Telegram 中向您的机器人发送以下指令即可完成全部日常运维：
+ZhihuPipeline 不是一个简单的爬虫，它是一个为你全自动打工的“私人知识管家”。
+它的终极目标只有一个：**让你只需在手机上点一下收藏，剩下的所有脏活累活全由机器接管，最终直接在你面前呈现出分类得整整齐齐的本地知识库。**
 
-| 指令 | 作用说明 |
-|---|---|
-| `/sync` | 立即触发一次知乎收藏同步。若未登录则推送登录二维码，同步完成后自动 Push 到 GitHub 并回复统计报告 |
-| `/status` | 查看系统运行状态、已同步文章总数、各分类篇数、待打标队列与上次同步时间 |
-| `/help` 或 `/start` | 显示帮助菜单与指令列表 |
+### 🌟 核心杀手锏：
 
----
-
-## 🏗️ 架构概览
-
-```mermaid
-flowchart TD
-    User["📱 手机 Telegram (@zhihu_syncbot)"]
-    
-    subgraph Host ["🖥️ NAS 容器 (zhihu-pipeline)"]
-        Bot["Telegram Bot 守护引擎 (bot.py)"]
-        Lock["并发防冲突锁 (asyncio.Lock)"]
-        Engine["SyncEngine 核心同步引擎"]
-        Xvfb["Xvfb 虚拟屏幕 (:99)"]
-        Playwright["Playwright Chromium (有头模式)"]
-        Vault["Obsidian Notes (/app/notes)"]
-        Git["Git Sync 自动推送模块"]
-    end
-
-    GitHub["☁️ GitHub (hardass/notes)"]
-    Obsidian["💻 Mac / 移动端 Obsidian"]
-    CouchDB["🗄️ NAS CouchDB (LiveSync)"]
-    
-    User -->|发送 /sync 或 /status| Bot
-    Bot -->|鉴权 chat_id| Lock
-    Lock -->|拉起抓取| Engine
-    Engine --> Xvfb
-    Xvfb --> Playwright
-    Playwright -->|抓取知乎 & 自动出队| Engine
-    Engine -->|写入 Markdown & 高清插图| Vault
-    Vault -->|自动提交与推送| Git
-    Git -->|git push| GitHub
-    GitHub -->|Obsidian Git 自动拉取| Obsidian
-    Obsidian -->|自动同步| CouchDB
-    Engine -->|推送登录二维码 & 结果报告| Bot
-    Bot -->|回复消息| User
-```
+1. **📥 Inbox 全自动消费模式**：文章一旦被抓取，管家会自动帮你从知乎收藏夹里“取消勾选”。彻底把收藏夹变成“待办收件箱 (Inbox)”，看完就清，轻装上阵！
+2. **🛡️ 纯 UI 无感抗风控**：彻底抛弃老旧的直接 API 调用，内嵌 Playwright 真实有头浏览器引擎。什么 `x-zse-96` 动态签名？什么 `403 Forbidden` 封锁？在真实模拟的点击面前，统统无效！
+3. **🤖 手机端随时唤醒**：内置 Telegram 机器人。不仅会把掉线的登录二维码直接发到你微信/TG里让你扫码，你还可以随时发一句 `/sync`，立刻让管家开始干活！
+4. **📸 完美适配 Obsidian**：自动下载超清 `_1440w` 图片，本地化图片路径（告别断网就图裂的尴尬），保留折叠的高赞评论。直接对接 Obsidian，知识资产 100% 本地化，绝对安全！
 
 ---
 
-## ⚙️ 配置文件 `config.yaml`
+## 🧠 终极「大小脑」混合架构设计 (The Secret Sauce)
 
-```yaml
-# Chrome Profile & Browser
-chrome:
-  user_data_dir: "~/.zhihu_pipeline/chrome_profile"  # 浏览器会话与 Cookie 持久化目录
-  headless: false                                    # 保持 false，配合 Xvfb 运行
+为什么有些爬虫软件总是卡死或者拖慢你的电脑？为什么云端大模型 API 总让你担心隐私泄露？
+我们采用了一种极度优雅的**「大小脑分工」混合架构**，完美兼顾了自动化、算力和隐私：
 
-# Telegram Bot (用于二维码推送与指令交互)
-telegram:
-  enabled: true
-  bot_token: "YOUR_TELEGRAM_BOT_TOKEN"               # 从 @BotFather 获取
-  chat_id: "YOUR_TELEGRAM_CHAT_ID"                   # 您的 Telegram 用户 ID
-  timeout: 300                                       # 扫码等待超时时间 (秒)
+### ☁️ 小脑：NAS / 软路由 (全天候苦力工)
+- **角色**：专职做下载、排队、存图的“体力活”。
+- **运行方式**：通过 Docker 7x24 小时常驻在你的低功耗 NAS (比如 QNAP TS-466C) 上。
+- **机制**：它每隔两个小时（还会自动加入随机延时防封号）去巡视一圈你的收藏夹。一旦有新文章，就默默扒下来转成 Markdown，并推送进你的 GitHub 仓库中，此时文章状态标记为 `Pending`。
 
-# GitHub 自动双向同步
-git:
-  enabled: true                                      # 开启后每次同步自动 pull/push 到 GitHub
-  repo_url: "https://<USER>:<TOKEN>@github.com/<USER>/<REPO>.git"
-  branch: "main"
-  user_name: "YOUR_GITHUB_USERNAME"
-  user_email: "YOUR_GITHUB_EMAIL"
-  auto_pull: true
-  auto_push: true
-
-# Sync Settings
-sync:
-  collections: "all"                                 # "all" 或指定收藏夹名称列表 ["我的收藏", "技术"]
-  include_comments: true                             # 是否抓取前 20 条热门评论
-  max_comments: 20
-  delay_min: 3                                       # 请求间隔延时 (秒)，防风控
-  delay_max: 8
-  remove_after_sync: true                            # 抓取成功后自动从知乎收藏夹移除 (Inbox 消费模式)
-  schedule_enabled: true                             # 开启后台周期性定时巡检
-  schedule_interval_hours: 2.0                       # 巡检基准间隔 (小时)
-  schedule_jitter_minutes: 25.0                      # 反爬随机抖动范围 (±25分钟)
-
-# Obsidian Output
-output:
-  vault_path: "~/notes"                              # Obsidian 笔记库根目录
-  collection_dir: "知乎收藏"
-  image_naming: "file-${date:YYYYMMDDHHmmssSSS}"
-
-# Auto-tagging (可选，接入本地 Ollama 或云端 API)
-tagger:
-  enabled: false                                     # true 开启自动打标签
-  backend: "openai_compatible"
-  base_url: "http://localhost:11434/v1"              # Ollama 默认地址
-  model: "qwen2.5:3b"
-  api_key: ""                                        # 若使用云端大模型需填写 API Key
-```
+### 💻 大脑：本地 Mac (高性能智能打标员)
+- **角色**：利用 M 系芯片的恐怖算力做“脑力活”。
+- **运行方式**：借助强大的 Obsidian Git 插件，NAS 扒下的文章会全自动同步到你的 Mac 本地。
+- **机制**：当你晚上将 Mac 插上电源时（或者随手双击一个脚本），本地跑着的 **Ollama (Qwen2.5 3B 小模型)** 瞬间觉醒！它会迅速扫过那些 `Pending` 的文章，自动提取出 **领域 (Domain)、概念 (Concept)、难度 (Level) 和一句话总结**。
+- **零成本 & 绝对隐私**：全程不用调用任何外部商业 API，不仅一分钱不花，你收藏的私密知识也绝对不会被大公司拿去炼丹！
 
 ---
 
-## 🚀 部署与运行指南
+## 🛠️ 如何打造你自己的自动化管家？（配置指南）
 
-### 方式 A：Docker 常驻部署（推荐用于 QNAP NAS / 软路由 / Linux VPS）
+想要拥有这套极其优雅的工作流？只需要几步简单的配置：
 
-1. **准备配置文件**：
-   ```bash
-   cp config.example.yaml config.yaml
-   # 填入您的 telegram.bot_token 和 telegram.chat_id
-   ```
+### 第一步：在 NAS 上部署体力工 (Docker)
 
-2. **启动常驻 Telegram Bot 容器**：
-   ```bash
-   docker compose up -d --build
-   ```
-   > 容器将开机自启并常驻后台。您可以在手机 Telegram 中发送 `/sync` 随时启动抓取！
-
-3. **常用 Docker 运维命令**：
-   ```bash
-   # 查看实时日志
-   docker compose logs -f
-   
-   # 重启容器 (自动清理并重载 Xvfb 虚拟屏幕与代码)
-   docker compose restart
-   
-   # 单次执行手动同步 (非常驻模式)
-   docker compose run --rm zhihu-pipeline sync
-   
-   # 检查登录状态
-   docker compose run --rm zhihu-pipeline check-auth
-   ```
-
----
-
-### 方式 B：本地直接运行 (macOS / Linux)
-
-1. **安装依赖**：
+1. 克隆代码库并准备配置：
    ```bash
    git clone https://github.com/hardass/ZhihuPipeline.git
    cd ZhihuPipeline
-   uv sync
-   uv run playwright install chromium
+   cp config.example.yaml config.yaml
    ```
-
-2. **常用指令**：
+2. 修改 `config.yaml`（注意：一定要关闭 NAS 的 tagger，节省 CPU 资源）：
+   ```yaml
+   tagger:
+     enabled: false  # NAS 专职下载，坚决不跑模型！
+   ```
+3. 填入你的 Telegram Token，配好 GitHub 远程仓库路径，然后一键起飞：
    ```bash
-   # 启动 Telegram 交互式机器人
-   uv run python -m zhihu_pipeline bot
-   
-   # 单次全量同步
-   uv run python -m zhihu_pipeline sync
-   
-   # 检查知乎登录态
-   uv run python -m zhihu_pipeline check-auth
-   
-   # 独立运行未打标文章的 AI 分类打标
-   uv run python -m zhihu_pipeline tag
+   docker compose up -d --build
    ```
 
----
+### 第二步：在本地 Mac 上部署最强大脑
 
-## 📂 输出目录结构
-
-```text
-~/notes/
-├── assets/                              # 所有高清图片统一本地存储
-│   └── 扔掉BM25，拥抱稀疏向量/
-│       ├── file-20260302134512001.jpg
-│       └── file-20260302134512002.jpg
-└── 知乎收藏/
-    ├── 我的收藏/                        # 按收藏夹分类存储的 Markdown 文件
-    │   ├── 2026-03-02 【硬核干货】扔掉BM25，拥抱稀疏向量.md
-    │   ├── 2026-06-29 量化交易的本质完完全全就是统计学吗？.md
-    │   └── ...
-    └── manifest.json                    # 增量同步数据库与打标状态
-```
+1. 在你的 Mac 本地下载 [Ollama](https://ollama.com/) 客户端。
+2. 打开终端，跑一句：`ollama run qwen2.5:3b`，把千问小模型拉到本地。
+3. 把项目 clone 到你本地的 Obsidian 仓库同一层，并修改你 Mac 本地的 `config.yaml`，开启打标签引擎：
+   ```yaml
+   tagger:
+     enabled: true
+     backend: "openai_compatible"
+     base_url: "http://localhost:11434/v1"  # 对接本地 Ollama
+     model: "qwen2.5:3b"
+   ```
+4. **一键打标脚本**：在项目目录下，我们为你准备了一个双击就能运行的脚本 `run_local_tagger.command`，或者是配置在深夜自动运行的 `run_nightly_tagger.sh`。只需在有空的时候跑一下，你的几百篇文章在几十秒内就会全部被打上精致的维度标签！
 
 ---
 
-## 📝 单元测试
+## 🛡️ 关于数据安全与隐私的郑重承诺
 
-```bash
-PYTHONPATH=src pytest -v
-```
-涵盖 Telegram 消息/图片 Mock 推送、扫码登录流、DOM 登录识别、HTML 清洗与 Markdown 转换、AI 标签清洗 Guardrail、Telegram Bot 指令路由、GitHub 自动双向同步及 UI 自动化收藏夹出队测试（**39 项测试用例 100% 通过**）。
+你可能会担心：“这么复杂的自动化系统，会不会把我的账号 Token 推送到公网 GitHub 上泄露？”
+
+**绝对不会！** 
+我们从底层架构上就杜绝了这种可能：
+- 核心配置文件 `config.yaml` 以及环境变量 `.env` **已被永久加入 `.gitignore` 黑名单**，你填入的密码、Token 永远只存在于你本地。
+- 所有浏览器产生的登陆态 `chrome_profile/` 和调试生成的临时日志，都被严密过滤，甚至连打标的脚本都不会被提交。你的隐私数据壁垒森严！
+
+---
+
+别再让知识在收藏夹里发霉了。今天就花十分钟把 ZhihuPipeline 部署起来，享受这种**睡一觉醒来，知识已经被喂到嘴边且分类整齐**的极致快感吧！

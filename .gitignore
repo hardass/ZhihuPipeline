@@ -58,3 +58,10 @@ chrome_profile/
 notes/
 *.log
 
+
+# Local Tagger Scripts
+run_local_tagger.command
+run_nightly_tagger.sh
+com.hardass.zhihutagger.plist
+test_tag_script.py
+

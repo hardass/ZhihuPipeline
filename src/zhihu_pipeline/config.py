@@ -49,7 +49,7 @@ class TaggerConfig:
     backend: str = "local"
     base_url: str = "http://localhost:11434/v1"
     model: str = "qwen2.5:3b"
-    timeout: int = 120
+    timeout: float = 600.0
     valid_domains: List[str] = field(default_factory=lambda: [
         "AI", "Product", "Engineering", "Career", "Finance",
         "Life", "Home", "Hobbies", "Psychology", "Parenting"

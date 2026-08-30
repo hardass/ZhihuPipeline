@@ -192,7 +192,8 @@ def call_llm_api(content: str, cfg, pbar=None) -> dict:
 
     full_text = ""
     # trust_env=False prevents HTTPX from using local system proxies for localhost requests.
-    with httpx.Client(timeout=cfg.timeout, trust_env=False) as client:
+    timeout = 600.0  # Increased for NAS CPU inference
+    with httpx.Client(timeout=timeout, trust_env=False) as client:
         with client.stream("POST", url, json=payload, headers=headers) as response:
             response.raise_for_status()
             for line in response.iter_lines():
