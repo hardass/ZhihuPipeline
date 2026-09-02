@@ -56,6 +56,7 @@ yt_venv/
 zhihu_qr.png
 chrome_profile/
 notes/
+logs/
 *.log
 
 

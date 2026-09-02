@@ -16,6 +16,8 @@ services:
       - ./entrypoint.sh:/app/entrypoint.sh
       # Persistent browser profile (preserves login cookies & session)
       - ./chrome_profile:/app/chrome_profile
+      # Persistent logs directory
+      - ./logs:/app/logs
       # Configuration
       - ./config.yaml:/app/config.yaml
       # Obsidian notes output directory (defaults to ./notes in project directory)
