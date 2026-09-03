@@ -56,13 +56,13 @@ selectors:
     author: "div.AuthorInfo meta[itemprop='name']"
     time: "div.ContentItem-time"
 
-# Auto-tagging (Local Ollama or Cloud API)
+# Auto-tagging (Local LM Studio or Cloud API)
 tagger:
   enabled: false                   # Global toggle: false = download only, no tagging
-  backend: "openai_compatible"     # Works with Ollama, DeepSeek, SiliconFlow, OpenAI, etc.
-  base_url: "http://localhost:11434/v1"  # Default is local Ollama. For DeepSeek use https://api.deepseek.com/v1
-  model: "qwen2.5:3b"              # For DeepSeek use "deepseek-chat"
-  api_key: ""                      # Leave empty for local Ollama. Required for Cloud APIs.
+  backend: "openai_compatible"     # Works with LM Studio, DeepSeek, SiliconFlow, OpenAI, etc.
+  base_url: "http://localhost:1234/v1"  # Default is local LM Studio (Apple Silicon MLX). For DeepSeek use https://api.deepseek.com/v1
+  model: "qwen2.5-3b-instruct-mlx" # For DeepSeek use "deepseek-chat"
+  api_key: ""                      # Leave empty for local LM Studio. Required for Cloud APIs.
   timeout: 120                     # Inference timeout (seconds)
   valid_domains:
     - AI

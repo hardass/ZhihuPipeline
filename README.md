@@ -33,9 +33,12 @@ ZhihuPipeline 不是一个简单的爬虫，它是一个为你全自动打工的
 - **机制**：它每隔两个小时（还会自动加入随机延时防封号）去巡视一圈你的收藏夹。一旦有新文章，就默默扒下来转成 Markdown，并推送进你的 GitHub 仓库中，此时文章状态标记为 `Pending`。
 
 ### 💻 大脑：本地 Mac (高性能智能打标员)
-- **角色**：利用 M 系芯片的恐怖算力做“脑力活”。
+- **角色**：利用 M 系芯片的高能效 GPU/统一内存算力做“脑力活”。
 - **运行方式**：借助强大的 Obsidian Git 插件，NAS 扒下的文章会全自动同步到你的 Mac 本地。
-- **机制**：当你晚上将 Mac 插上电源时（或者随手双击一个脚本），本地跑着的 **Ollama (Qwen2.5 3B 小模型)** 瞬间觉醒！它会迅速扫过那些 `Pending` 的文章，自动提取出 **领域 (Domain)、概念 (Concept)、难度 (Level) 和一句话总结**。
+- **机制**：当你晚上将 Mac 插上电源时（或者随手敲一句 `zhihu-tag`），本地 **LM Studio (Qwen2.5 3B MLX)** 瞬间工作！它会迅速扫过那些 `Pending` 的文章，自动提取出 **领域 (Domain)、概念 (Concept)、难度 (Level) 和一句话总结**。
+- **🚀 零感智能生命周期 (Zero-Touch & Auto-Offload)**：
+  - **自动拉起**：即使你完全没打开 LM Studio，程序也会通过 `lms` CLI 在后台静默启动服务并载入 GPU 内存。
+  - **即用即卸**：打标一旦完成，**立刻自动从显存中卸载 (Offload) 模型**并退出临时服务，将 ~1.75 GB 内存 100% 完整交还系统，平时绝对零驻留、零白吃资源！
 - **零成本 & 绝对隐私**：全程不用调用任何外部商业 API，不仅一分钱不花，你收藏的私密知识也绝对不会被大公司拿去炼丹！
 
 ---
@@ -64,17 +67,22 @@ ZhihuPipeline 不是一个简单的爬虫，它是一个为你全自动打工的
 
 ### 第二步：在本地 Mac 上部署最强大脑
 
-1. 在你的 Mac 本地下载 [Ollama](https://ollama.com/) 客户端。
-2. 打开终端，跑一句：`ollama run qwen2.5:3b`，把千问小模型拉到本地。
-3. 把项目 clone 到你本地的 Obsidian 仓库同一层，并修改你 Mac 本地的 `config.yaml`，开启打标签引擎：
+1. 在你的 Mac 本地安装 [LM Studio](https://lmstudio.ai/)，并在内置应用中下载 `qwen2.5-3b-instruct-mlx`（针对 Apple Silicon 极致优化）。
+2. 在项目目录下的 `config.yaml` 中，开启打标签引擎（默认已对接 LM Studio）：
    ```yaml
    tagger:
      enabled: true
      backend: "openai_compatible"
-     base_url: "http://localhost:11434/v1"  # 对接本地 Ollama
-     model: "qwen2.5:3b"
+     base_url: "http://localhost:1234/v1"  # 对接本地 LM Studio
+     model: "qwen2.5-3b-instruct-mlx"
    ```
-4. **一键打标脚本**：在项目目录下，我们为你准备了一个双击就能运行的脚本 `run_local_tagger.command`，或者是配置在深夜自动运行的 `run_nightly_tagger.sh`。只需在有空的时候跑一下，你的几百篇文章在几十秒内就会全部被打上精致的维度标签！
+3. **随手打标指令（无论处于哪个目录）**：
+   ```bash
+   zhihu-tag            # 极速打标（服务未开自动唤醒，打完自动释放内存）
+   zhihu-tag --dry-run  # 仅预览待打标文章列表，不调用模型
+   zhihu-tag --force    # 强制全部重新打标
+   ```
+   *也可以直接在项目目录下双击 `run_local_tagger.command`，或者依赖系统凌晨 2:00 插电自动触发的 `run_nightly_tagger.sh`。*
 
 ---
 
