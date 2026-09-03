@@ -320,11 +320,14 @@ def tag_single_file(file_path: str, cfg, pbar=None) -> bool:
         return False
 
 
-def ensure_llm_service_ready(cfg) -> bool:
+def ensure_llm_service_ready(cfg) -> tuple[bool, bool]:
     """
     Ensures the LLM backend is reachable and ready to serve completions.
     If targeting local LM Studio (localhost:1234) and the server is down or model is unloaded,
     automatically boots the LM Studio background server and loads the model via 'lms' CLI.
+
+    Returns:
+        (is_ready, started_by_us): whether service is ready, and whether this pass started the server.
     """
     base_url = cfg.base_url.rstrip('/')
     models_url = f"{base_url}/models"
@@ -332,6 +335,7 @@ def ensure_llm_service_ready(cfg) -> bool:
 
     # 1. Quick probe to see if server is already responding
     server_running = False
+    started_by_us = False
     try:
         with httpx.Client(trust_env=False, timeout=2.0) as client:
             resp = client.get(models_url)
@@ -350,6 +354,7 @@ def ensure_llm_service_ready(cfg) -> bool:
             logger.info("LM Studio server is not running. Automatically starting via 'lms server start'...")
             try:
                 subprocess.run([lms_path, "server", "start"], check=True, capture_output=True, text=True)
+                started_by_us = True
                 time.sleep(1.5)
                 with httpx.Client(trust_env=False, timeout=5.0) as client:
                     resp = client.get(models_url)
@@ -358,7 +363,7 @@ def ensure_llm_service_ready(cfg) -> bool:
                         logger.info("LM Studio local server started successfully.")
             except Exception as e:
                 logger.error(f"Failed to auto-start LM Studio server: {e}")
-                return False
+                return False, False
 
         # Ensure the specified model is loaded into memory
         if server_running and model_name:
@@ -376,9 +381,36 @@ def ensure_llm_service_ready(cfg) -> bool:
             f"Cannot connect to LLM server at {base_url}. "
             "Please ensure your local LM Studio or API server is running."
         )
-        return False
+        return False, False
 
-    return True
+    return True, started_by_us
+
+
+def offload_llm_model(cfg, stop_server: bool = False):
+    """
+    Unloads the model from memory to free up system RAM/VRAM.
+    If the server was started exclusively for this tagging pass, stops the background server as well.
+    """
+    base_url = cfg.base_url.rstrip('/')
+    is_local_lms = any(x in base_url for x in ["1234", "localhost", "127.0.0.1"])
+    lms_path = shutil.which("lms") or os.path.expanduser("~/.lmstudio/bin/lms")
+
+    if is_local_lms and lms_path and os.path.exists(lms_path):
+        model_name = getattr(cfg, "model", None)
+        try:
+            logger.info(f"🧹 Offloading model '{model_name or 'all'}' to release system memory...")
+            if model_name:
+                subprocess.run([lms_path, "unload", model_name], capture_output=True, text=True)
+            else:
+                subprocess.run([lms_path, "unload", "-a"], capture_output=True, text=True)
+            logger.info("✅ Model offloaded successfully. RAM/VRAM released.")
+
+            if stop_server:
+                logger.info("🛑 Stopping temporary LM Studio background server...")
+                subprocess.run([lms_path, "server", "stop"], capture_output=True, text=True)
+                logger.info("✅ LM Studio server stopped.")
+        except Exception as e:
+            logger.warning(f"Failed to offload model via 'lms': {e}")
 
 
 # ============================================================
@@ -395,7 +427,8 @@ def run_tagging_pass(manifest, vault_path: str, cfg) -> tuple:
         logger.info("No pending or failed files found for tagging.")
         return 0, 0
 
-    if not ensure_llm_service_ready(cfg):
+    ready, started_by_us = ensure_llm_service_ready(cfg)
+    if not ready:
         return 0, len(pending_items)
 
     logger.info(f"Starting tagging pass for {len(pending_items)} files using backend {cfg.base_url} (Model: {cfg.model})...")
@@ -403,23 +436,26 @@ def run_tagging_pass(manifest, vault_path: str, cfg) -> tuple:
     success_count = 0
     fail_count = 0
 
-    progress_bar = tqdm(pending_items, desc="Tagging Articles")
-    for key, item in progress_bar:
-        local_path = item.get("local_path")
-        if not local_path:
-            logger.warning(f"Item {key} has no local_path specified in manifest. Skipping.")
-            manifest.update_tagging_status(key, "failed")
-            fail_count += 1
-            continue
+    try:
+        progress_bar = tqdm(pending_items, desc="Tagging Articles")
+        for key, item in progress_bar:
+            local_path = item.get("local_path")
+            if not local_path:
+                logger.warning(f"Item {key} has no local_path specified in manifest. Skipping.")
+                manifest.update_tagging_status(key, "failed")
+                fail_count += 1
+                continue
 
-        full_path = os.path.join(vault_path, local_path)
+            full_path = os.path.join(vault_path, local_path)
 
-        success = tag_single_file(full_path, cfg, pbar=progress_bar)
-        if success:
-            manifest.update_tagging_status(key, "tagged")
-            success_count += 1
-        else:
-            manifest.update_tagging_status(key, "failed")
-            fail_count += 1
+            success = tag_single_file(full_path, cfg, pbar=progress_bar)
+            if success:
+                manifest.update_tagging_status(key, "tagged")
+                success_count += 1
+            else:
+                manifest.update_tagging_status(key, "failed")
+                fail_count += 1
+    finally:
+        offload_llm_model(cfg, stop_server=started_by_us)
 
     return success_count, fail_count
