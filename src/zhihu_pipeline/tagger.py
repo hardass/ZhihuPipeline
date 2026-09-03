@@ -2,6 +2,9 @@ import os
 import re
 import json
 import yaml
+import shutil
+import subprocess
+import time
 import httpx
 from loguru import logger
 from tqdm import tqdm
@@ -317,6 +320,67 @@ def tag_single_file(file_path: str, cfg, pbar=None) -> bool:
         return False
 
 
+def ensure_llm_service_ready(cfg) -> bool:
+    """
+    Ensures the LLM backend is reachable and ready to serve completions.
+    If targeting local LM Studio (localhost:1234) and the server is down or model is unloaded,
+    automatically boots the LM Studio background server and loads the model via 'lms' CLI.
+    """
+    base_url = cfg.base_url.rstrip('/')
+    models_url = f"{base_url}/models"
+    model_name = getattr(cfg, "model", None)
+
+    # 1. Quick probe to see if server is already responding
+    server_running = False
+    try:
+        with httpx.Client(trust_env=False, timeout=2.0) as client:
+            resp = client.get(models_url)
+            if resp.status_code == 200:
+                server_running = True
+    except Exception:
+        server_running = False
+
+    # 2. If it is local LM Studio and not responding, auto-start via lms CLI
+    is_local_lms = any(x in base_url for x in ["1234", "localhost", "127.0.0.1"])
+    lms_path = shutil.which("lms") or os.path.expanduser("~/.lmstudio/bin/lms")
+    has_lms = bool(lms_path and os.path.exists(lms_path))
+
+    if is_local_lms and has_lms:
+        if not server_running:
+            logger.info("LM Studio server is not running. Automatically starting via 'lms server start'...")
+            try:
+                subprocess.run([lms_path, "server", "start"], check=True, capture_output=True, text=True)
+                time.sleep(1.5)
+                with httpx.Client(trust_env=False, timeout=5.0) as client:
+                    resp = client.get(models_url)
+                    if resp.status_code == 200:
+                        server_running = True
+                        logger.info("LM Studio local server started successfully.")
+            except Exception as e:
+                logger.error(f"Failed to auto-start LM Studio server: {e}")
+                return False
+
+        # Ensure the specified model is loaded into memory
+        if server_running and model_name:
+            try:
+                ps_res = subprocess.run([lms_path, "ps"], capture_output=True, text=True)
+                if model_name not in ps_res.stdout:
+                    logger.info(f"Model '{model_name}' is not in memory. Automatically loading via 'lms load'...")
+                    subprocess.run([lms_path, "load", model_name, "-y"], check=True, capture_output=True, text=True)
+                    logger.info(f"Model '{model_name}' loaded into GPU memory successfully.")
+            except Exception as e:
+                logger.warning(f"Failed to check/load model via 'lms': {e}. LM Studio may auto-load on first request.")
+
+    if not server_running:
+        logger.error(
+            f"Cannot connect to LLM server at {base_url}. "
+            "Please ensure your local LM Studio or API server is running."
+        )
+        return False
+
+    return True
+
+
 # ============================================================
 # Batch Tagging Pass
 # ============================================================
@@ -330,6 +394,9 @@ def run_tagging_pass(manifest, vault_path: str, cfg) -> tuple:
     if not pending_items:
         logger.info("No pending or failed files found for tagging.")
         return 0, 0
+
+    if not ensure_llm_service_ready(cfg):
+        return 0, len(pending_items)
 
     logger.info(f"Starting tagging pass for {len(pending_items)} files using backend {cfg.base_url} (Model: {cfg.model})...")
 
