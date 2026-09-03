@@ -261,7 +261,7 @@ class SyncEngine:
 
                         # Update Manifest
                         rel_local_path = os.path.relpath(saved_path, self.config.output.vault_path)
-                        initial_tagging_status = "pending" if self.config.tagger.enabled else "skipped"
+                        initial_tagging_status = "pending"
                         self.manifest.add_item(unique_key, {
                             "title": item_title,
                             "type": item_type,
