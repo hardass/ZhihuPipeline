@@ -318,7 +318,10 @@ class SyncEngine:
 
         finally:
             try:
+                playwright_instance = getattr(context, '_playwright_instance', None)
                 await context.close()
+                if playwright_instance:
+                    await playwright_instance.stop()
             except Exception:
                 pass
 
@@ -356,7 +359,10 @@ class SyncEngine:
             else:
                 logger.warning("Browser launched OK, but user is LOGGED OUT.")
                 print("Zhihu Connection: OK\nLogin Status: LOGGED OUT (QR Code flow will trigger on next sync)")
+            playwright_instance = getattr(context, '_playwright_instance', None)
             await context.close()
+            if playwright_instance:
+                await playwright_instance.stop()
         except Exception as e:
             logger.error(f"Authentication check failed: {e}")
             print(f"Zhihu Connection: FAILED. {e}")

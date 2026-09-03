@@ -27,7 +27,7 @@ def ensure_git_repo(vault_path: str, git_config: GitConfig) -> bool:
         return False
 
     # Prevent dubious ownership errors in container volume mounts
-    _run_git_cmd(["git", "config", "--global", "--add", "safe.directory", "*"], cwd=vault_path)
+    _run_git_cmd(["git", "config", "--global", "--add", "safe.directory", vault_path], cwd=vault_path)
 
     os.makedirs(vault_path, exist_ok=True)
     git_dir = os.path.join(vault_path, ".git")
@@ -57,6 +57,12 @@ def git_pull(vault_path: str, git_config: GitConfig) -> bool:
         return False
 
     ensure_git_repo(vault_path, git_config)
+
+    # Abort any stuck rebase from a previous failed run
+    code, _, _ = _run_git_cmd(["git", "rebase", "--abort"], cwd=vault_path)
+    if code == 0:
+        logger.warning("Aborted a stuck rebase from a previous run before pulling.")
+
     logger.info(f"Pulling latest notes from GitHub ({git_config.branch})...")
     code, out, err = _run_git_cmd(
         ["git", "pull", "--rebase", "origin", git_config.branch],
@@ -66,8 +72,18 @@ def git_pull(vault_path: str, git_config: GitConfig) -> bool:
         logger.info("Git pull completed successfully.")
         return True
     else:
-        logger.warning(f"Git pull encountered an issue (will continue sync): {err}")
-        return False
+        logger.warning(f"Git pull --rebase failed: {err}. Aborting rebase and retrying with merge strategy...")
+        _run_git_cmd(["git", "rebase", "--abort"], cwd=vault_path)
+        code2, out2, err2 = _run_git_cmd(
+            ["git", "pull", "--no-rebase", "origin", git_config.branch],
+            cwd=vault_path
+        )
+        if code2 == 0:
+            logger.info("Git pull (merge strategy) completed successfully.")
+            return True
+        else:
+            logger.warning(f"Git pull also failed with merge strategy (will continue sync): {err2}")
+            return False
 
 
 def git_push(vault_path: str, git_config: GitConfig, commit_message: str = "docs: auto sync zhihu collections [skip ci]") -> bool:

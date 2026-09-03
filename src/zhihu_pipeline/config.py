@@ -161,8 +161,8 @@ def load_config(config_path: str = "config.yaml") -> Config:
         enabled=bool(os.environ.get("GIT_ENABLED", git_data.get("enabled", False))),
         repo_url=str(os.environ.get("GIT_REPO_URL", git_data.get("repo_url", ""))),
         branch=str(os.environ.get("GIT_BRANCH", git_data.get("branch", "main"))),
-        user_name=str(os.environ.get("GIT_USER_NAME", git_data.get("user_name", "hardass"))),
-        user_email=str(os.environ.get("GIT_USER_EMAIL", git_data.get("user_email", "hardas.yang@gmail.com"))),
+        user_name=str(os.environ.get("GIT_USER_NAME", git_data.get("user_name", ""))),
+        user_email=str(os.environ.get("GIT_USER_EMAIL", git_data.get("user_email", ""))),
         auto_pull=bool(git_data.get("auto_pull", True)),
         auto_push=bool(git_data.get("auto_push", True))
     )
