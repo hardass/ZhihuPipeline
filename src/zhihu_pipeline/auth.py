@@ -1,9 +1,12 @@
 import os
 import asyncio
+from typing import Optional, Union
 import httpx
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from loguru import logger
-from zhihu_pipeline.config import TelegramConfig
+from zhihu_pipeline.config import TelegramConfig, NotifyConfig
+from zhihu_pipeline.notify import Notifier
+
 
 async def launch_browser_context(user_data_dir: str = "~/.zhihu_pipeline/chrome_profile", headless: bool = False) -> BrowserContext:
     """
@@ -155,12 +158,16 @@ async def check_login(page: Page) -> tuple[bool, str]:
         logger.error(f"Error checking login status: {e}")
         return False, ""
 
-async def send_telegram_message(bot_token: str, chat_id: str, text: str) -> bool:
+async def send_telegram_message(bot_token: str = "", chat_id: str = "", text: str = "", title: str = "") -> bool:
     """
-    Send text message to Telegram chat.
+    Send text message via Unified Notifier (notify-gateway) with direct Telegram fallback.
     """
+    notifier = Notifier()
+    if notifier.is_configured:
+        return await notifier.notify_text(message=text, title=title)
+
     if not bot_token or not chat_id:
-        logger.warning("Telegram bot_token or chat_id not configured. Skipping message notification.")
+        logger.warning("Neither NotifyGateway nor Telegram credentials configured. Skipping message.")
         return False
 
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -178,12 +185,16 @@ async def send_telegram_message(bot_token: str, chat_id: str, text: str) -> bool
         logger.error(f"Failed to send Telegram message: {e}")
         return False
 
-async def send_telegram_photo(bot_token: str, chat_id: str, photo_bytes: bytes, caption: str = "") -> bool:
+async def send_telegram_photo(bot_token: str = "", chat_id: str = "", photo_bytes: bytes = b"", caption: str = "", title: str = "") -> bool:
     """
-    Send photo to Telegram chat.
+    Send photo via Unified Notifier (notify-gateway) with direct Telegram fallback.
     """
+    notifier = Notifier()
+    if notifier.is_configured:
+        return await notifier.notify_photo(photo_bytes=photo_bytes, caption=caption, title=title)
+
     if not bot_token or not chat_id:
-        logger.warning("Telegram bot_token or chat_id not configured. Skipping photo notification.")
+        logger.warning("Neither NotifyGateway nor Telegram credentials configured. Skipping photo.")
         return False
 
     url = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
@@ -202,13 +213,24 @@ async def send_telegram_photo(bot_token: str, chat_id: str, photo_bytes: bytes, 
         logger.error(f"Failed to send Telegram photo: {e}")
         return False
 
-async def handle_qr_login(page: Page, telegram_config: TelegramConfig) -> tuple[bool, str]:
+async def handle_qr_login(
+    page: Page,
+    notify_config: Optional[Union[NotifyConfig, TelegramConfig, Notifier]] = None
+) -> tuple[bool, str]:
     """
-    Handle automated QR Code login flow with Telegram push notifications.
-    Captures Zhihu login QR code, pushes to Telegram, and waits for user to scan and complete login.
+    Handle automated QR Code login flow with push notifications via the unified notification gateway.
+    Captures Zhihu login QR code, pushes to notification gateway, and waits for user to scan and complete login.
     """
     logger.info("Initiating QR code login flow...")
-    timeout_sec = telegram_config.timeout if telegram_config else 300
+    if isinstance(notify_config, Notifier):
+        notifier = notify_config
+    elif isinstance(notify_config, NotifyConfig):
+        notifier = Notifier(notify_config)
+    else:
+        # Fallback to default Notifier
+        notifier = Notifier()
+
+    timeout_sec = getattr(notify_config, 'timeout', 300) or 300
     
     try:
         if "/signin" not in page.url:
@@ -262,12 +284,10 @@ async def handle_qr_login(page: Page, telegram_config: TelegramConfig) -> tuple[
                 return True, username
             
             # Avoid sending random full-page screenshot as a fake "QR code"
-            if telegram_config.enabled and telegram_config.bot_token and telegram_config.chat_id:
-                await send_telegram_message(
-                    telegram_config.bot_token,
-                    telegram_config.chat_id,
-                    "⚠️ <b>【知乎登录提示】</b>\n检测到登录失效，但在登录页面未找到二维码。请检查知乎账号状态。"
-                )
+            await notifier.notify_text(
+                "检测到登录失效，但在登录页面未找到二维码。请检查知乎账号状态。",
+                title="⚠️ 【知乎登录提示】"
+            )
             return False, ""
 
         photo_bytes = await qr_element.screenshot()
@@ -278,17 +298,12 @@ async def handle_qr_login(page: Page, telegram_config: TelegramConfig) -> tuple[
             f.write(photo_bytes)
         logger.info(f"QR code screenshot saved locally to {local_qr_path}")
 
-        # Push to Telegram only when valid QR photo is captured
-        qr_sent = False
-        if telegram_config.enabled and telegram_config.bot_token and telegram_config.chat_id:
-            caption = (
-                "🔔 <b>【知乎登录已过期】</b>\n\n"
-                "请在手机上打开 <b>知乎 App</b> 扫描上方二维码完成登录。\n"
-                f"二维码有效期约 5 分钟，登录后系统将自动恢复同步任务。"
-            )
-            qr_sent = await send_telegram_photo(telegram_config.bot_token, telegram_config.chat_id, photo_bytes, caption)
-        else:
-            logger.warning("Telegram notification not enabled. Please check zhihu_qr.png manually.")
+        # Push to notification gateway only when valid QR photo is captured
+        caption = (
+            "请在手机上打开 <b>知乎 App</b> 扫描上方二维码完成登录。\n"
+            f"二维码有效期约 5 分钟，登录后系统将自动恢复同步任务。"
+        )
+        qr_sent = await notifier.notify_photo(photo_bytes, caption=caption, title="🔔 【知乎登录已过期】")
 
         print("\n" + "="*60)
         print("【提示】知乎登录已过期！")
@@ -310,9 +325,9 @@ async def handle_qr_login(page: Page, telegram_config: TelegramConfig) -> tuple[
                 ok, username = await check_login(page)
                 if ok:
                     logger.info(f"QR Login successful! User: {username}")
-                    if qr_sent and telegram_config.enabled and telegram_config.bot_token:
-                        success_msg = f"✅ <b>知乎扫码登录成功！</b>\n当前账号：<b>{username}</b>\nPipeline 正在继续执行同步任务。"
-                        await send_telegram_message(telegram_config.bot_token, telegram_config.chat_id, success_msg)
+                    if qr_sent:
+                        success_msg = f"当前账号：<b>{username}</b>\nPipeline 正在继续执行同步任务。"
+                        await notifier.notify_text(success_msg, title="✅ 知乎扫码登录成功！")
                     return True, username
 
             # Check for avatar or other indicators directly
@@ -321,9 +336,9 @@ async def handle_qr_login(page: Page, telegram_config: TelegramConfig) -> tuple[
                 ok, username = await check_login(page)
                 if ok:
                     logger.info(f"QR Login successful! User: {username}")
-                    if qr_sent and telegram_config.enabled and telegram_config.bot_token:
-                        success_msg = f"✅ <b>知乎扫码登录成功！</b>\n当前账号：<b>{username}</b>\nPipeline 正在继续执行同步任务。"
-                        await send_telegram_message(telegram_config.bot_token, telegram_config.chat_id, success_msg)
+                    if qr_sent:
+                        success_msg = f"当前账号：<b>{username}</b>\nPipeline 正在继续执行同步任务。"
+                        await notifier.notify_text(success_msg, title="✅ 知乎扫码登录成功！")
                     return True, username
 
             # Check if QR code needs refresh (every 45s)
@@ -338,27 +353,26 @@ async def handle_qr_login(page: Page, telegram_config: TelegramConfig) -> tuple[
                         await page.wait_for_timeout(2000)
                         if qr_element:
                             new_bytes = await qr_element.screenshot()
-                            if qr_sent and telegram_config.enabled and telegram_config.bot_token:
-                                await send_telegram_photo(
-                                    telegram_config.bot_token,
-                                    telegram_config.chat_id,
+                            if qr_sent:
+                                await notifier.notify_photo(
                                     new_bytes,
-                                    "🔄 <b>二维码已刷新</b>，请扫描最新的二维码："
+                                    caption="请扫描最新的二维码完成登录：",
+                                    title="🔄 二维码已刷新"
                                 )
                     except Exception as e:
                         logger.debug(f"Refresh QR error: {e}")
 
         # Timeout reached
         logger.error("QR Code login timed out.")
-        if qr_sent and telegram_config.enabled and telegram_config.bot_token:
-            await send_telegram_message(
-                telegram_config.bot_token,
-                telegram_config.chat_id,
-                "❌ <b>知乎扫码登录超时</b>\n未在 5 分钟内完成扫码，任务已暂停。请稍后重试。"
+        if qr_sent:
+            await notifier.notify_text(
+                "未在 5 分钟内完成扫码，任务已暂停。请稍后重试。",
+                title="❌ 知乎扫码登录超时"
             )
         return False, ""
 
     except Exception as e:
         logger.error(f"Error during QR login flow: {e}")
         return False, ""
+
 

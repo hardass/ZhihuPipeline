@@ -10,6 +10,7 @@ from loguru import logger
 
 from .config import Config
 from .sync_engine import SyncEngine
+from .notify import Notifier
 
 
 class TelegramBotDaemon:
@@ -20,10 +21,12 @@ class TelegramBotDaemon:
         self.bot_token = config.telegram.bot_token
         self.admin_chat_id = str(config.telegram.chat_id).strip()
         self.api_base = f"https://api.telegram.org/bot{self.bot_token}"
+        self.notifier = Notifier(config.notify)
         self.engine = SyncEngine(config)
         self.sync_lock = asyncio.Lock()
         self.is_running = False
         self.last_update_id: Optional[int] = None
+
 
     async def send_message(self, chat_id: str | int, text: str, parse_mode: str = "Markdown") -> bool:
         """Send text message to Telegram chat."""
@@ -165,12 +168,14 @@ class TelegramBotDaemon:
                         synced_count = stats.get("synced", 0)
                         if synced_count > 0:
                             summary = (
-                                f"⏰ *定时自动同步完成！*\n\n"
-                                f"• *发现并同步*: `{synced_count}` 篇新文章\n"
-                                f"• *已自动推送*: GitHub `hardass/notes`\n"
-                                f"• *保存目录*: `{self.config.output.vault_path}`"
+                                f"• 发现并同步: <b>{synced_count}</b> 篇新文章\n"
+                                f"• 已自动推送: GitHub <code>hardass/notes</code>\n"
+                                f"• 保存目录: <code>{self.config.output.vault_path}</code>"
                             )
-                            await self.send_message(self.admin_chat_id, summary)
+                            # Send via unified notification gateway
+                            sent = await self.notifier.notify_text(summary, title="⏰ 定时自动同步完成！")
+                            if not sent and self.bot_token and self.admin_chat_id:
+                                await self.send_message(self.admin_chat_id, f"⏰ *定时自动同步完成！*\n\n{summary}")
                         else:
                             logger.info("[Scheduled Sync] Finished: 0 new items to download.")
             except asyncio.CancelledError:

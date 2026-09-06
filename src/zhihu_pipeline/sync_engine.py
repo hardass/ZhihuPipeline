@@ -58,7 +58,7 @@ class SyncEngine:
             logged_in, username = await check_login(page)
             if not logged_in:
                 logger.warning("User is not logged in. Initiating automated QR code login flow...")
-                logged_in, username = await handle_qr_login(page, self.config.telegram)
+                logged_in, username = await handle_qr_login(page, self.config.notify)
                 if not logged_in:
                     logger.error("QR login failed or timed out. Aborting sync.")
                     raise RuntimeError("QR code login failed or timed out.")

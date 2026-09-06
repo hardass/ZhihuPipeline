@@ -6,12 +6,21 @@ chrome:
   headless: false                                    # Set to false for Xvfb in Docker to avoid anti-bot blocks
   debug_port: 9222                                   # Deprecated fallback port
 
-# Telegram Notification (Auto Push QR Code when login expires & Remote Bot Control)
+# Unified Notification Gateway (Cloudflare Worker notify-gateway)
+notify:
+  enabled: true                                      # Enable notification gateway
+  gateway_url: "https://notify.perilcrosser.com/send" # Unified gateway endpoint
+  api_key: "YOUR_NOTIFY_GATEWAY_API_KEY"             # Or set via NOTIFY_GATEWAY_KEY or ~/.notify_key
+  service: "ZhihuPipeline"                           # Service tag identifier
+  timeout: 300                                       # Maximum wait time for QR code scanning in seconds
+
+# Telegram Notification (Optional: for direct bot polling / commands like /sync)
 telegram:
-  enabled: true                                      # Enable Telegram push notifications
+  enabled: true                                      # Enable Telegram bot commands
   bot_token: "YOUR_TELEGRAM_BOT_TOKEN"               # Obtained from @BotFather
   chat_id: "YOUR_TELEGRAM_CHAT_ID"                   # Obtained from @userinfobot
   timeout: 300                                       # Maximum wait time for QR code scanning in seconds
+
 
 # GitHub Auto-Sync (Automatically pushes notes & assets to your remote GitHub notes repository)
 git:

@@ -21,6 +21,15 @@ class TelegramConfig:
     timeout: int = 300  # QR scan wait timeout (seconds)
 
 @dataclass
+class NotifyConfig:
+    enabled: bool = True
+    gateway_url: str = "https://notify.perilcrosser.com/send"
+    api_key: str = ""
+    service: str = "ZhihuPipeline"
+    timeout: int = 300  # QR scan wait timeout (seconds)
+
+
+@dataclass
 class SyncConfig:
     collections: Union[str, List[str]] = "all"
     include_comments: bool = True
@@ -93,6 +102,7 @@ class GitConfig:
 class Config:
     chrome: ChromeConfig = field(default_factory=ChromeConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
+    notify: NotifyConfig = field(default_factory=NotifyConfig)
     git: GitConfig = field(default_factory=GitConfig)
     sync: SyncConfig = field(default_factory=SyncConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
@@ -113,6 +123,7 @@ def load_config(config_path: str = "config.yaml") -> Config:
 
     chrome_data = data.get("chrome") or {}
     telegram_data = data.get("telegram") or {}
+    notify_data = data.get("notify") or {}
     sync_data = data.get("sync") or {}
     output_data = data.get("output") or {}
     tagger_data = data.get("tagger") or {}
@@ -128,6 +139,13 @@ def load_config(config_path: str = "config.yaml") -> Config:
         bot_token=str(os.environ.get("TELEGRAM_BOT_TOKEN", telegram_data.get("bot_token", ""))),
         chat_id=str(os.environ.get("TELEGRAM_CHAT_ID", telegram_data.get("chat_id", ""))),
         timeout=int(telegram_data.get("timeout", 300))
+    )
+    notify = NotifyConfig(
+        enabled=bool(notify_data.get("enabled", True)),
+        gateway_url=str(os.environ.get("NOTIFY_GATEWAY_URL", notify_data.get("gateway_url", "https://notify.perilcrosser.com/send"))),
+        api_key=str(os.environ.get("NOTIFY_GATEWAY_KEY", notify_data.get("api_key", ""))),
+        service=str(notify_data.get("service", "ZhihuPipeline")),
+        timeout=int(notify_data.get("timeout", telegram_data.get("timeout", 300)))
     )
     sync = SyncConfig(
         collections=sync_data.get("collections", "all"),
@@ -170,6 +188,7 @@ def load_config(config_path: str = "config.yaml") -> Config:
     return Config(
         chrome=chrome,
         telegram=telegram,
+        notify=notify,
         git=git,
         sync=sync,
         output=output,

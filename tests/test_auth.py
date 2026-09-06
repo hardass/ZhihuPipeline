@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock, PropertyMock
-from zhihu_pipeline.config import TelegramConfig
+from zhihu_pipeline.config import TelegramConfig, NotifyConfig
 from zhihu_pipeline.auth import (
     send_telegram_message,
     send_telegram_photo,
@@ -8,11 +8,14 @@ from zhihu_pipeline.auth import (
     handle_qr_login,
 )
 
+
 import asyncio
 
 def test_send_telegram_message_mock():
     async def _run():
-        with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        with patch("zhihu_pipeline.notify.Notifier.is_configured", new_callable=PropertyMock) as mock_cfg, \
+             patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+            mock_cfg.return_value = False
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_post.return_value = mock_response
@@ -28,7 +31,9 @@ def test_send_telegram_message_mock():
 
 def test_send_telegram_photo_mock():
     async def _run():
-        with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        with patch("zhihu_pipeline.notify.Notifier.is_configured", new_callable=PropertyMock) as mock_cfg, \
+             patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+            mock_cfg.return_value = False
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_post.return_value = mock_response
@@ -112,15 +117,15 @@ def test_handle_qr_login_flow():
         mock_page.locator = MagicMock(side_effect=mock_locator_fn)
         mock_page.wait_for_selector = AsyncMock(return_value=mock_qr_elem)
 
-        with patch("zhihu_pipeline.auth.send_telegram_photo", new_callable=AsyncMock) as mock_photo, \
-             patch("zhihu_pipeline.auth.send_telegram_message", new_callable=AsyncMock) as mock_msg, \
+        with patch("zhihu_pipeline.notify.Notifier.notify_photo", new_callable=AsyncMock) as mock_photo, \
+             patch("zhihu_pipeline.notify.Notifier.notify_text", new_callable=AsyncMock) as mock_msg, \
              patch("zhihu_pipeline.auth.check_login", return_value=(True, "TestUser")) as mock_check, \
              patch("asyncio.sleep", new_callable=AsyncMock):
             
             mock_photo.return_value = True
             mock_msg.return_value = True
 
-            config = TelegramConfig(enabled=True, bot_token="token", chat_id="123", timeout=10)
+            config = NotifyConfig(enabled=True, api_key="test_key", timeout=10)
             ok, user = await handle_qr_login(mock_page, config)
 
             assert ok is True
@@ -175,11 +180,11 @@ def test_handle_qr_login_redirect_already_logged_in():
         # url is homepage after navigation (redirected)
         mock_page.url = "https://www.zhihu.com"
 
-        with patch("zhihu_pipeline.auth.send_telegram_photo", new_callable=AsyncMock) as mock_photo, \
-             patch("zhihu_pipeline.auth.send_telegram_message", new_callable=AsyncMock) as mock_msg, \
+        with patch("zhihu_pipeline.notify.Notifier.notify_photo", new_callable=AsyncMock) as mock_photo, \
+             patch("zhihu_pipeline.notify.Notifier.notify_text", new_callable=AsyncMock) as mock_msg, \
              patch("zhihu_pipeline.auth.check_login", return_value=(True, "ExistingUser")) as mock_check:
 
-            config = TelegramConfig(enabled=True, bot_token="token", chat_id="123", timeout=10)
+            config = NotifyConfig(enabled=True, api_key="test_key", timeout=10)
             ok, user = await handle_qr_login(mock_page, config)
 
             assert ok is True
