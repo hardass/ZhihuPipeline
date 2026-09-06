@@ -129,3 +129,63 @@ def test_handle_qr_login_flow():
             mock_msg.assert_called_once()
 
     asyncio.run(_run())
+
+
+def test_check_login_avatar_priority():
+    """Verify avatar presence confirms login even if a login button locator also exists."""
+    async def _run():
+        mock_page = AsyncMock()
+        mock_page.url = "https://www.zhihu.com"
+
+        def mock_locator_fn(selector):
+            loc = MagicMock()
+            # Both avatar and login button match
+            if "profileAvatar" in selector or "Avatar" in selector:
+                loc.count = AsyncMock(return_value=1)
+                loc.first = MagicMock()
+            elif "profileName" in selector or "ProfileHeader-name" in selector:
+                loc.count = AsyncMock(return_value=1)
+                first_elem = MagicMock()
+                first_elem.inner_text = AsyncMock(return_value="ValidUser")
+                loc.first = first_elem
+            elif "登录" in selector:
+                loc.count = AsyncMock(return_value=1)
+                first_elem = MagicMock()
+                first_elem.is_visible = AsyncMock(return_value=True)
+                loc.nth = MagicMock(return_value=first_elem)
+            else:
+                loc.count = AsyncMock(return_value=0)
+            return loc
+
+        mock_page.locator = MagicMock(side_effect=mock_locator_fn)
+        mock_page.wait_for_selector = AsyncMock()
+
+        logged_in, username = await check_login(mock_page)
+        assert logged_in is True
+        assert username == "ValidUser"
+
+    asyncio.run(_run())
+
+
+def test_handle_qr_login_redirect_already_logged_in():
+    """Verify handle_qr_login suppresses QR photo and success notification if redirected because user is already logged in."""
+    async def _run():
+        mock_page = AsyncMock()
+
+        # url is homepage after navigation (redirected)
+        mock_page.url = "https://www.zhihu.com"
+
+        with patch("zhihu_pipeline.auth.send_telegram_photo", new_callable=AsyncMock) as mock_photo, \
+             patch("zhihu_pipeline.auth.send_telegram_message", new_callable=AsyncMock) as mock_msg, \
+             patch("zhihu_pipeline.auth.check_login", return_value=(True, "ExistingUser")) as mock_check:
+
+            config = TelegramConfig(enabled=True, bot_token="token", chat_id="123", timeout=10)
+            ok, user = await handle_qr_login(mock_page, config)
+
+            assert ok is True
+            assert user == "ExistingUser"
+            # No spurious messages should have been sent!
+            mock_photo.assert_not_called()
+            mock_msg.assert_not_called()
+
+    asyncio.run(_run())

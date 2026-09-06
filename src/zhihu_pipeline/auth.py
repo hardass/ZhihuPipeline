@@ -72,22 +72,44 @@ async def check_login(page: Page) -> tuple[bool, str]:
     try:
         current_url = page.url
         if "zhihu.com" not in current_url or "/signin" in current_url:
-            await page.goto("https://www.zhihu.com", wait_until="domcontentloaded", timeout=20000)
-            await page.wait_for_timeout(2000)
+            await page.goto("https://www.zhihu.com", wait_until="domcontentloaded", timeout=25000)
+            await page.wait_for_timeout(1000)
         
         current_url = page.url
         if "/signin" in current_url:
             logger.warning("Zhihu redirected to sign-in page. User is logged out.")
             return False, ""
-            
-        login_btn = page.locator("button:has-text('登录/注册'), button:has-text('登录'), a:has-text('登录')")
-        if await login_btn.count() > 0:
-            for i in range(await login_btn.count()):
-                if await login_btn.nth(i).is_visible():
-                    logger.warning("Login button is visible. User is logged out.")
-                    return False, ""
 
-        avatar = page.locator(".AppHeader-profileAvatar, .AppHeader-user, .AppHeader-profile, .Avatar")
+        # Step 1: Wait for SPA hydration.
+        # Check for either logged-in indicators (avatar, profile) or explicit login button in AppHeader.
+        logged_in_selectors = [
+            ".AppHeader-profileAvatar",
+            ".AppHeader-user",
+            ".AppHeader-profile",
+            ".Avatar",
+            ".AppHeader-notifications",
+            ".AppHeader-messages",
+            "button.AppHeader-profile",
+            ".TopstoryTabs",
+        ]
+        logged_out_selectors = [
+            "button.AppHeader-login",
+            ".AppHeader button:has-text('登录')",
+            ".SignContainer",
+            ".SignFlow",
+        ]
+
+        combined_wait_selector = ", ".join(logged_in_selectors + logged_out_selectors)
+        try:
+            # Wait up to 6 seconds for header elements to hydrate
+            await page.wait_for_selector(combined_wait_selector, timeout=6000)
+        except Exception:
+            # Slower network/NAS fallback wait
+            await page.wait_for_timeout(2000)
+
+        # Step 2: Positive indicators check FIRST.
+        # If user avatar or profile header exists, user is definitely logged in!
+        avatar = page.locator(", ".join(logged_in_selectors[:4]))
         if await avatar.count() > 0:
             logger.info("Profile indicator found. User is logged in.")
             username = "Zhihu User"
@@ -99,10 +121,33 @@ async def check_login(page: Page) -> tuple[bool, str]:
                 pass
             return True, username
 
-        tabs = page.locator("a:has-text('关注'), a:has-text('推荐'), a:has-text('热榜')")
+        tabs = page.locator("nav.AppHeader-Tabs a:has-text('关注'), nav.AppHeader-Tabs a:has-text('推荐'), .TopstoryTabs")
         if await tabs.count() > 0:
             logger.info("Zhihu feed tabs found. User is logged in.")
             return True, "Zhihu User"
+
+        # Step 3: Check if explicitly logged out.
+        # Strictly scoped to AppHeader or SignContainer to avoid matching article links or text
+        login_btn = page.locator("button.AppHeader-login, .AppHeader button:has-text('登录/注册'), .AppHeader button:has-text('登录'), .SignContainer, .SignFlow-submitButton")
+        if await login_btn.count() > 0:
+            for i in range(await login_btn.count()):
+                if await login_btn.nth(i).is_visible():
+                    logger.warning("Header login button/modal is visible. User is logged out.")
+                    return False, ""
+
+        # Step 4: Cookie verification fallback.
+        # If DOM hasn't rendered either clearly, check if z_c0 auth cookie exists in browser profile
+        try:
+            cookies = await page.context.cookies("https://www.zhihu.com")
+            has_auth_cookie = any(c.get("name") == "z_c0" and c.get("value") for c in cookies)
+            if has_auth_cookie:
+                logger.info("Auth cookie (z_c0) found in context. Waiting for DOM to finish hydration...")
+                await page.wait_for_timeout(3000)
+                if await avatar.count() > 0:
+                    logger.info("Profile indicator found after cookie wait. User is logged in.")
+                    return True, "Zhihu User"
+        except Exception as e:
+            logger.debug(f"Cookie check error: {e}")
 
         logger.warning("Could not find any logged-in indicators. User is logged out.")
         return False, ""
@@ -169,9 +214,15 @@ async def handle_qr_login(page: Page, telegram_config: TelegramConfig) -> tuple[
         if "/signin" not in page.url:
             await page.goto("https://www.zhihu.com/signin", wait_until="domcontentloaded", timeout=20000)
             await page.wait_for_timeout(2000)
+            # If navigating to /signin redirected away (user is already logged in)
+            if "/signin" not in page.url:
+                ok, username = await check_login(page)
+                if ok:
+                    logger.info(f"User is already logged in (redirected from /signin). Active user: {username}")
+                    return True, username
 
         # Look for QR code tab if password tab is active
-        qr_tab = page.locator("div.SignFlow-tab:has-text('二维码登录'), button:has-text('二维码登录'), .SignFlow-tabs button:first-child")
+        qr_tab = page.locator("div.SignFlow-tab:has-text('二维码登录'), button:has-text('二维码登录'), .SignFlow-tabs button:first-child, .SignFlow-qrcodeMode")
         if await qr_tab.count() > 0 and await qr_tab.first.is_visible():
             try:
                 await qr_tab.first.click()
@@ -199,16 +250,27 @@ async def handle_qr_login(page: Page, telegram_config: TelegramConfig) -> tuple[
         if not qr_element:
             # Try waiting for the default selector
             try:
-                qr_element = await page.wait_for_selector("img.Qrcode-qrcode, .Qrcode-img img, .Qrcode-container", timeout=8000)
+                qr_element = await page.wait_for_selector("img.Qrcode-qrcode, .Qrcode-img img, .Qrcode-container", timeout=6000)
             except Exception:
                 pass
 
         if not qr_element:
             logger.error("Could not find Zhihu QR code element on signin page.")
-            # Fallback: take full page screenshot
-            photo_bytes = await page.screenshot()
-        else:
-            photo_bytes = await qr_element.screenshot()
+            # Double check if user is actually logged in
+            ok, username = await check_login(page)
+            if ok:
+                return True, username
+            
+            # Avoid sending random full-page screenshot as a fake "QR code"
+            if telegram_config.enabled and telegram_config.bot_token and telegram_config.chat_id:
+                await send_telegram_message(
+                    telegram_config.bot_token,
+                    telegram_config.chat_id,
+                    "⚠️ <b>【知乎登录提示】</b>\n检测到登录失效，但在登录页面未找到二维码。请检查知乎账号状态。"
+                )
+            return False, ""
+
+        photo_bytes = await qr_element.screenshot()
 
         # Save a local backup image
         local_qr_path = "zhihu_qr.png"
@@ -216,14 +278,15 @@ async def handle_qr_login(page: Page, telegram_config: TelegramConfig) -> tuple[
             f.write(photo_bytes)
         logger.info(f"QR code screenshot saved locally to {local_qr_path}")
 
-        # Push to Telegram
+        # Push to Telegram only when valid QR photo is captured
+        qr_sent = False
         if telegram_config.enabled and telegram_config.bot_token and telegram_config.chat_id:
             caption = (
                 "🔔 <b>【知乎登录已过期】</b>\n\n"
                 "请在手机上打开 <b>知乎 App</b> 扫描上方二维码完成登录。\n"
                 f"二维码有效期约 5 分钟，登录后系统将自动恢复同步任务。"
             )
-            await send_telegram_photo(telegram_config.bot_token, telegram_config.chat_id, photo_bytes, caption)
+            qr_sent = await send_telegram_photo(telegram_config.bot_token, telegram_config.chat_id, photo_bytes, caption)
         else:
             logger.warning("Telegram notification not enabled. Please check zhihu_qr.png manually.")
 
@@ -247,7 +310,7 @@ async def handle_qr_login(page: Page, telegram_config: TelegramConfig) -> tuple[
                 ok, username = await check_login(page)
                 if ok:
                     logger.info(f"QR Login successful! User: {username}")
-                    if telegram_config.enabled and telegram_config.bot_token:
+                    if qr_sent and telegram_config.enabled and telegram_config.bot_token:
                         success_msg = f"✅ <b>知乎扫码登录成功！</b>\n当前账号：<b>{username}</b>\nPipeline 正在继续执行同步任务。"
                         await send_telegram_message(telegram_config.bot_token, telegram_config.chat_id, success_msg)
                     return True, username
@@ -258,7 +321,7 @@ async def handle_qr_login(page: Page, telegram_config: TelegramConfig) -> tuple[
                 ok, username = await check_login(page)
                 if ok:
                     logger.info(f"QR Login successful! User: {username}")
-                    if telegram_config.enabled and telegram_config.bot_token:
+                    if qr_sent and telegram_config.enabled and telegram_config.bot_token:
                         success_msg = f"✅ <b>知乎扫码登录成功！</b>\n当前账号：<b>{username}</b>\nPipeline 正在继续执行同步任务。"
                         await send_telegram_message(telegram_config.bot_token, telegram_config.chat_id, success_msg)
                     return True, username
@@ -275,7 +338,7 @@ async def handle_qr_login(page: Page, telegram_config: TelegramConfig) -> tuple[
                         await page.wait_for_timeout(2000)
                         if qr_element:
                             new_bytes = await qr_element.screenshot()
-                            if telegram_config.enabled and telegram_config.bot_token:
+                            if qr_sent and telegram_config.enabled and telegram_config.bot_token:
                                 await send_telegram_photo(
                                     telegram_config.bot_token,
                                     telegram_config.chat_id,
@@ -287,7 +350,7 @@ async def handle_qr_login(page: Page, telegram_config: TelegramConfig) -> tuple[
 
         # Timeout reached
         logger.error("QR Code login timed out.")
-        if telegram_config.enabled and telegram_config.bot_token:
+        if qr_sent and telegram_config.enabled and telegram_config.bot_token:
             await send_telegram_message(
                 telegram_config.bot_token,
                 telegram_config.chat_id,
