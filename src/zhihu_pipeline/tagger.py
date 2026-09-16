@@ -337,7 +337,11 @@ def ensure_llm_service_ready(cfg) -> tuple[bool, bool]:
     server_running = False
     started_by_us = False
     try:
-        with httpx.Client(trust_env=False, timeout=2.0) as client:
+        headers = {}
+        api_key = getattr(cfg, "api_key", "")
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        with httpx.Client(trust_env=False, timeout=2.0, headers=headers) as client:
             resp = client.get(models_url)
             if resp.status_code == 200:
                 server_running = True
