@@ -17,8 +17,9 @@ ZhihuPipeline 不是一个简单的爬虫，它是一个为你全自动打工的
 
 1. **📥 Inbox 全自动消费模式**：文章一旦被抓取，管家会自动帮你从知乎收藏夹里“取消勾选”。彻底把收藏夹变成“待办收件箱 (Inbox)”，看完就清，轻装上阵！
 2. **🛡️ 纯 UI 无感抗风控**：彻底抛弃老旧的直接 API 调用，内嵌 Playwright 真实有头浏览器引擎。什么 `x-zse-96` 动态签名？什么 `403 Forbidden` 封锁？在真实模拟的点击面前，统统无效！
-3. **🤖 手机端随时唤醒**：内置 Telegram 机器人。不仅会把掉线的登录二维码直接发到你微信/TG里让你扫码，你还可以随时发一句 `/sync`，立刻让管家开始干活！
-4. **📸 完美适配 Obsidian**：自动下载超清 `_1440w` 图片，本地化图片路径（告别断网就图裂的尴尬），保留折叠的高赞评论。直接对接 Obsidian，知识资产 100% 本地化，绝对安全！
+3. **📱 登录通知与全自动运行**：定时任务自动完成搜索、下载、打标签和 GitHub 同步；登录失效时由统一 Notify Gateway 推送二维码。Telegram 指令控制面是可选项。
+4. **📸 完美适配 Obsidian**：自动下载超清 `_1440w` 图片，本地化图片路径（告别断网就图裂的尴尬），保留折叠的高赞评论。直接对接 Obsidian，知识资产 100% 本地化。
+5. **🎬 低体积视频归档**：识别知乎 Pin 中的视频，默认下载最低清晰度 `LD`，并以 Obsidian 可播放的本地附件形式保存。视频与知乎笔记一起进入 Git 同步范围。
 
 ---
 
@@ -27,23 +28,34 @@ ZhihuPipeline 不是一个简单的爬虫，它是一个为你全自动打工的
 为什么有些爬虫软件总是卡死或者拖慢你的电脑？为什么云端大模型 API 总让你担心隐私泄露？
 我们采用了一种极度优雅的**「大小脑分工」混合架构**，完美兼顾了自动化、算力和隐私：
 
-### ☁️ 小脑：NAS / 软路由 (全天候苦力工)
-- **角色**：专职做下载、排队、存图的“体力活”。
-- **运行方式**：通过 Docker 7x24 小时常驻在你的低功耗 NAS (比如 QNAP TS-466C) 上。
-- **机制**：它每隔两个小时（还会自动加入随机延时防封号）去巡视一圈你的收藏夹。一旦有新文章，就默默扒下来转成 Markdown，并推送进你的 GitHub 仓库中，此时文章状态标记为 `Pending`。
+### ☁️ NAS：全天候下载与打标签
+- **角色**：专职做下载、排队、存图，并调用 GB10 上的 Qwen 模型完成打标签。
+- **运行方式**：通过 Docker 7x24 小时常驻在低功耗 NAS 或家用服务器上。
+- **机制**：它每隔两个小时（还会自动加入随机延时防封号）巡视收藏夹。新文章下载为 Markdown 后，由 GB10 完成分类、概念、难度和摘要标注，最后再推送到 GitHub。
 
-### 💻 大脑：本地 Mac (高性能智能打标员)
-- **角色**：利用 M 系芯片的高能效 GPU/统一内存算力做“脑力活”。
-- **运行方式**：借助强大的 Obsidian Git 插件，NAS 扒下的文章会全自动同步到你的 Mac 本地。
-- **机制**：当你晚上将 Mac 插上电源时（或者随手敲一句 `zhihu-tag`），本地 **LM Studio (Qwen2.5 3B MLX)** 瞬间工作！它会迅速扫过那些 `Pending` 的文章，自动提取出 **领域 (Domain)、概念 (Concept)、难度 (Level) 和一句话总结**。
-- **🚀 零感智能生命周期 (Zero-Touch & Auto-Offload)**：
-  - **自动拉起**：即使你完全没打开 LM Studio，程序也会通过 `lms` CLI 在后台静默启动服务并载入 GPU 内存。
-  - **即用即卸**：打标一旦完成，**立刻自动从显存中卸载 (Offload) 模型**并退出临时服务，将 ~1.75 GB 内存 100% 完整交还系统，平时绝对零驻留、零白吃资源！
+### 💻 Mac：Obsidian 与私人笔记
+- **角色**：继续管理你的整个 Obsidian vault，包括私人笔记。
+- **运行方式**：Obsidian Git 从 GitHub 拉取 NAS 已下载并打好标签的知乎文章；你仍然可以正常新增、修改并 push 私人笔记。
+- **机制**：Mac 端不再需要为知乎文章运行本地 tagger，避免 Mac 与 NAS 同时修改知乎 Pipeline 的状态文件。
+- **🚀 GB10 远程服务**：NAS 通过 OpenAI-compatible 接口调用 GB10 上的 Qwen 模型；模型服务由 GB10 自己管理，NAS 不需要安装或驻留本地模型。
 - **零成本 & 绝对隐私**：全程不用调用任何外部商业 API，不仅一分钱不花，你收藏的私密知识也绝对不会被大公司拿去炼丹！
 
 ---
 
 ## 🛠️ 如何打造你自己的自动化管家？（配置指南）
+
+### 视频下载与 Git 同步
+
+知乎视频默认使用 `LD`（最低清晰度）版本，适合手机查看知识性内容，并限制单个视频大小，避免意外下载超大文件：
+
+```yaml
+sync:
+  video_enabled: true
+  video_quality: "ld"       # ld / sd / hd / fhd
+  video_max_size_mb: 50      # 单个视频上限（十进制 MB）
+```
+
+下载后的 Markdown 会嵌入 `assets/知乎视频/` 下的本地视频文件。自动 Git 同步只会提交知乎收藏目录和该视频目录，不会触碰共享 Vault 中的私人笔记或 `.obsidian` 设置。
 
 想要拥有这套极其优雅的工作流？只需要几步简单的配置：
 
@@ -51,38 +63,31 @@ ZhihuPipeline 不是一个简单的爬虫，它是一个为你全自动打工的
 
 1. 克隆代码库并准备配置：
    ```bash
-   git clone https://github.com/hardass/ZhihuPipeline.git
+   git clone https://github.com/<OWNER>/ZhihuPipeline.git
    cd ZhihuPipeline
    cp config.example.yaml config.yaml
    ```
 2. 修改 `config.yaml`（注意：一定要关闭 NAS 的 tagger，节省 CPU 资源）：
    ```yaml
    tagger:
-     enabled: false  # NAS 专职下载，坚决不跑模型！
+     enabled: true  # 调用 GB10 上的 Qwen 模型完成打标签
    ```
-3. 填入你的 Telegram Token，配好 GitHub 远程仓库路径，然后一键起飞：
+3. 配好 Notify Gateway、GitHub 远程仓库路径，然后一键起飞：
    ```bash
    docker compose up -d --build
    ```
 
-### 第二步：在本地 Mac 上部署最强大脑
+### 第二步：在本地 Mac 上配置 Obsidian 同步
 
-1. 在你的 Mac 本地安装 [LM Studio](https://lmstudio.ai/)，并在内置应用中下载 `qwen2.5-3b-instruct-mlx`（针对 Apple Silicon 极致优化）。
-2. 在项目目录下的 `config.yaml` 中，开启打标签引擎（默认已对接 LM Studio）：
-   ```yaml
-   tagger:
-     enabled: true
-     backend: "openai_compatible"
-     base_url: "http://localhost:1234/v1"  # 对接本地 LM Studio
-     model: "qwen2.5-3b-instruct-mlx"
-   ```
-3. **随手打标指令（无论处于哪个目录）**：
+1. 在 Mac 上打开 Obsidian，让 Obsidian Git 正常 pull/push 整个 vault。
+2. NAS 负责知乎目录的下载、GB10 打标签和 GitHub push；Mac 端不再运行 nightly tagger。
+3. **旧版本地打标指令（仅在不使用 NAS GB10 流程时使用）**：
    ```bash
    zhihu-tag            # 极速打标（服务未开自动唤醒，打完自动释放内存）
    zhihu-tag --dry-run  # 仅预览待打标文章列表，不调用模型
    zhihu-tag --force    # 强制全部重新打标
    ```
-   *也可以直接在项目目录下双击 `run_local_tagger.command`，或者依赖系统凌晨 2:00 插电自动触发的 `run_nightly_tagger.sh`。*
+   *如果启用了 NAS GB10 流程，请不要同时运行这些本地 tagger 脚本。*
 
 ---
 
@@ -90,7 +95,7 @@ ZhihuPipeline 不是一个简单的爬虫，它是一个为你全自动打工的
 
 你可能会担心：“这么复杂的自动化系统，会不会把我的账号 Token 推送到公网 GitHub 上泄露？”
 
-**绝对不会！** 
+**不会，只要按示例配置并避免把真实配置文件加入版本库。**
 我们从底层架构上就杜绝了这种可能：
 - 核心配置文件 `config.yaml` 以及环境变量 `.env` **已被永久加入 `.gitignore` 黑名单**，你填入的密码、Token 永远只存在于你本地。
 - 所有浏览器产生的登陆态 `chrome_profile/` 和调试生成的临时日志，都被严密过滤，甚至连打标的脚本都不会被提交。你的隐私数据壁垒森严！

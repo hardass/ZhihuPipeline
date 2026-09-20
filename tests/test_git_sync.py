@@ -51,3 +51,31 @@ def test_git_push_when_changes_exist(dummy_git_config):
         mock_cmd.assert_any_call(["git", "add", "-A"], cwd="/tmp/vault")
         mock_cmd.assert_any_call(["git", "commit", "-m", "test commit"], cwd="/tmp/vault")
         mock_cmd.assert_any_call(["git", "push", "origin", "main"], cwd="/tmp/vault")
+
+
+def test_git_push_can_scope_pipeline_paths(dummy_git_config):
+    with patch("zhihu_pipeline.git_sync._run_git_cmd") as mock_cmd, \
+         patch("os.path.exists", return_value=True):
+        def side_effect(cmd, cwd):
+            if "status" in cmd:
+                return 0, " M 知乎收藏/new.md\n?? assets/知乎视频/demo.mp4", ""
+            return 0, "", ""
+
+        mock_cmd.side_effect = side_effect
+
+        ok = git_push(
+            "/tmp/vault",
+            dummy_git_config,
+            "test commit",
+            include_paths=["知乎收藏", "assets/知乎视频"],
+        )
+
+        assert ok is True
+        mock_cmd.assert_any_call(
+            ["git", "status", "--porcelain", "--", "知乎收藏", "assets/知乎视频"],
+            cwd="/tmp/vault",
+        )
+        mock_cmd.assert_any_call(
+            ["git", "add", "-A", "--", "知乎收藏", "assets/知乎视频"],
+            cwd="/tmp/vault",
+        )

@@ -22,5 +22,5 @@ services:
       - ./config.yaml:/app/config.yaml
       # Obsidian notes output directory (defaults to ./notes in project directory)
       - ${NOTES_DIR:-./notes}:/app/notes
-    command: ["bot"]
+    command: ["worker"]
     restart: unless-stopped

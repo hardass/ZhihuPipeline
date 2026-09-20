@@ -3,11 +3,11 @@
 ## 1. 项目背景
 
 ### 1.1 目标
-将知乎收藏夹中的文章/回答（文字+图片）自动保存为 Obsidian Markdown 文件，建立本地化知识库。
+将知乎收藏夹中的文章/回答/视频 Pin（文字、图片和低清视频）自动保存为 Obsidian Markdown 文件，建立本地化知识库。
 
 ### 1.2 约束条件
 - 收藏夹 7-8 个，总条目 <100，日增 1-2 条
-- 只处理文字+图片内容，不处理视频
+- 视频默认只下载 `LD` 版本，并限制单个文件大小；不追求高清播放
 - 时效性要求低，手动触发即可
 - 半自动方式（需手动登录 Chrome），不做全自动登录
 
@@ -32,7 +32,7 @@
 
 ## 3. 用户 Obsidian Vault 现状分析
 
-Vault 路径：`/Users/hardass/notes`
+Vault 路径：`<OBSIDIAN_VAULT_PATH>`
 
 ### 3.1 Obsidian 配置
 
@@ -150,6 +150,12 @@ tags:
 - 下载到 `./assets/笔记名/` 目录
 - 文件命名匹配插件格式：`file-YYYYMMDDHHmmssSSS.ext`
 - 替换 Markdown 中的图片路径为本地相对路径
+
+#### videos.py — 视频处理模块
+- 从 Pin 的 playlist 中选择配置的清晰度，默认 `LD`
+- 流式下载并校验声明大小，使用临时文件原子替换
+- 保存到 `./assets/知乎视频/笔记名/`，并生成 Obsidian 视频嵌入
+- Git 同步只包含知乎收藏目录和 `assets/知乎视频/`
 
 #### storage.py — 存储模块
 - 生成带 Front Matter 的 Markdown 文件
@@ -354,7 +360,7 @@ sync:
   delay_max: 8
 
 output:
-  vault_path: "/Users/hardass/notes"
+  vault_path: "<OBSIDIAN_VAULT_PATH>"
   collection_dir: "知乎收藏"
   image_naming: "file-${date:YYYYMMDDHHmmssSSS}"
 
@@ -405,5 +411,5 @@ python -m zhihu_pipeline check-auth
 | 图片下载失败 | 保留远程 URL，标注失败 |
 | 评论被限制 | 静默跳过 |
 | 网络超时 | 重试 1 次 |
-| 视频类型 | 跳过，manifest 标记 unsupported |
+| 视频没有可用清晰度或超过大小限制 | 跳过当前条目并记录失败原因 |
 | 同名文件 | 加上知乎 ID 后 6 位做后缀 |

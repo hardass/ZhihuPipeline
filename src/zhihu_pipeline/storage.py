@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import tempfile
 import yaml
 from datetime import datetime
 from typing import Dict, Any, Optional
@@ -147,24 +148,46 @@ class ManifestManager:
         try:
             with open(self.manifest_path, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception as e:
-            logger.error(f"Failed to load manifest.json: {e}")
-            return {
-                "version": 1,
-                "last_sync": "",
-                "synced_items": {}
-            }
+        except json.JSONDecodeError as e:
+            # Never replace a corrupt manifest with an empty one: that would
+            # make the pipeline forget every previously synced article.
+            logger.critical(f"Manifest is invalid JSON at {self.manifest_path}: {e}")
+            raise RuntimeError(
+                f"Manifest is invalid and must be repaired before continuing: {self.manifest_path}"
+            ) from e
+        except OSError as e:
+            logger.critical(f"Cannot read manifest.json at {self.manifest_path}: {e}")
+            raise RuntimeError(
+                f"Manifest cannot be read: {self.manifest_path}"
+            ) from e
             
     def save(self):
         directory = os.path.dirname(self.manifest_path)
         if directory:
             os.makedirs(directory, exist_ok=True)
+        temp_path = None
         try:
-            with open(self.manifest_path, "w", encoding="utf-8") as f:
+            # Write and fsync a sibling temp file, then atomically replace the
+            # manifest. Readers can therefore never observe a half-written JSON.
+            fd, temp_path = tempfile.mkstemp(
+                prefix=".manifest.", suffix=".tmp", dir=directory or "."
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(self.data, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, self.manifest_path)
+            temp_path = None
             logger.debug("Successfully saved manifest.json.")
         except Exception as e:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
             logger.error(f"Failed to save manifest.json: {e}")
+            raise
             
     def is_synced(self, unique_key: str) -> bool:
         synced_items = self.data.get("synced_items", {})

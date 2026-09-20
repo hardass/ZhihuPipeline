@@ -104,7 +104,7 @@ def clear_archive(collection):
 
 @cli.command()
 def bot():
-    """Run interactive Telegram Bot daemon (long-polling mode)."""
+    """Run the scheduler with optional Telegram long-polling (legacy entrypoint)."""
     from zhihu_pipeline.bot import TelegramBotDaemon
     config = load_config()
     daemon = TelegramBotDaemon(config)
@@ -120,6 +120,23 @@ def bot():
         daemon.stop()
         loop.close()
 
+@cli.command()
+def worker():
+    """Run scheduled sync only; notification delivery remains via notify-gateway."""
+    from zhihu_pipeline.bot import TelegramBotDaemon
+    config = load_config()
+    daemon = TelegramBotDaemon(config)
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    try:
+        loop.run_until_complete(daemon.run_worker())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Scheduled worker interrupted by user.")
+    finally:
+        daemon.stop()
+        loop.close()
+
 if __name__ == "__main__":
     cli()
-

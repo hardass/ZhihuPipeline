@@ -4,6 +4,7 @@ import random
 from typing import List, Dict, Any, Optional
 from loguru import logger
 from playwright.async_api import Page, Response
+from zhihu_pipeline.videos import extract_pin_detail
 
 async def fetch_collections(page: Page) -> List[Dict[str, Any]]:
     """
@@ -143,7 +144,10 @@ async def fetch_collection_items(page: Page, collection_id: int) -> List[Dict[st
             title = content.get("title", "")
             item_url = f"https://zhuanlan.zhihu.com/p/{c_id}"
         elif c_type == "pin":
-            title = content.get("excerpt_title", "想法")
+            title = extract_pin_detail({
+                "title": content.get("excerpt_title", "想法"),
+                "raw_content": content,
+            })["title"]
             item_url = f"https://www.zhihu.com/pin/{c_id}"
         else:
             # Other unsupported types like zvideo

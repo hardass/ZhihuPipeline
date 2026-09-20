@@ -37,7 +37,7 @@ Step 4 和 Step 5 可以与 Step 2、3 并行开发，因为它们之间没有�
 ### 提示词
 
 ```
-我需要你帮我初始化一个 Python 项目。项目在 /Users/hardass/vibe/ZhihuPipeline 目录下。
+我需要你帮我初始化一个 Python 项目。项目位于本地工作区的 `ZhihuPipeline` 目录下。
 
 请完成以下工作：
 

@@ -26,10 +26,10 @@ def ensure_git_repo(vault_path: str, git_config: GitConfig) -> bool:
     if not git_config.enabled or not git_config.repo_url:
         return False
 
+    os.makedirs(vault_path, exist_ok=True)
+
     # Prevent dubious ownership errors in container volume mounts
     _run_git_cmd(["git", "config", "--global", "--add", "safe.directory", vault_path], cwd=vault_path)
-
-    os.makedirs(vault_path, exist_ok=True)
     git_dir = os.path.join(vault_path, ".git")
 
     if not os.path.exists(git_dir):
@@ -86,21 +86,38 @@ def git_pull(vault_path: str, git_config: GitConfig) -> bool:
             return False
 
 
-def git_push(vault_path: str, git_config: GitConfig, commit_message: str = "docs: auto sync zhihu collections [skip ci]") -> bool:
+def git_push(
+    vault_path: str,
+    git_config: GitConfig,
+    commit_message: str = "docs: auto sync zhihu collections [skip ci]",
+    include_paths: list[str] | None = None,
+) -> bool:
     """Commit and push changes to remote GitHub repository."""
     if not git_config.enabled or not git_config.auto_push or not git_config.repo_url:
         return False
 
     ensure_git_repo(vault_path, git_config)
     
-    # Check if there are changes
-    code, status_out, _ = _run_git_cmd(["git", "status", "--porcelain"], cwd=vault_path)
+    # A NAS pipeline must not commit unrelated private-note changes from the
+    # shared Obsidian vault. Limit both status inspection and staging to the
+    # paths owned by this pipeline when requested.
+    pathspec = list(include_paths or [])
+    status_cmd = ["git", "status", "--porcelain"]
+    if pathspec:
+        status_cmd += ["--"] + pathspec
+    code, status_out, _ = _run_git_cmd(status_cmd, cwd=vault_path)
     if not status_out:
         logger.info("No git changes to commit.")
         return True
 
     logger.info(f"Staging changes in {vault_path}...")
-    _run_git_cmd(["git", "add", "-A"], cwd=vault_path)
+    add_cmd = ["git", "add", "-A"]
+    if pathspec:
+        add_cmd += ["--"] + pathspec
+    code, _, err = _run_git_cmd(add_cmd, cwd=vault_path)
+    if code != 0:
+        logger.error(f"Git staging failed: {err}")
+        return False
 
     logger.info(f"Committing: {commit_message}")
     code, out, err = _run_git_cmd(["git", "commit", "-m", commit_message], cwd=vault_path)

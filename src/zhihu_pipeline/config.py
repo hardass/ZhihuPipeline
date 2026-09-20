@@ -23,7 +23,7 @@ class TelegramConfig:
 @dataclass
 class NotifyConfig:
     enabled: bool = True
-    gateway_url: str = "https://notify.perilcrosser.com/send"
+    gateway_url: str = ""
     api_key: str = ""
     service: str = "ZhihuPipeline"
     timeout: int = 300  # QR scan wait timeout (seconds)
@@ -42,6 +42,9 @@ class SyncConfig:
     schedule_enabled: bool = True
     schedule_interval_hours: float = 2.0
     schedule_jitter_minutes: float = 25.0
+    video_enabled: bool = True
+    video_quality: str = "ld"
+    video_max_size_mb: float = 50.0
 
 @dataclass
 class OutputConfig:
@@ -59,6 +62,7 @@ class TaggerConfig:
     base_url: str = "http://localhost:11434/v1"
     model: str = "qwen2.5:3b"
     timeout: float = 600.0
+    api_key: str = ""
     valid_domains: List[str] = field(default_factory=lambda: [
         "AI", "Product", "Engineering", "Career", "Finance",
         "Life", "Home", "Hobbies", "Psychology", "Parenting"
@@ -142,7 +146,7 @@ def load_config(config_path: str = "config.yaml") -> Config:
     )
     notify = NotifyConfig(
         enabled=bool(notify_data.get("enabled", True)),
-        gateway_url=str(os.environ.get("NOTIFY_GATEWAY_URL", notify_data.get("gateway_url", "https://notify.perilcrosser.com/send"))),
+        gateway_url=str(os.environ.get("NOTIFY_GATEWAY_URL", notify_data.get("gateway_url", ""))),
         api_key=str(os.environ.get("NOTIFY_GATEWAY_KEY", notify_data.get("api_key", ""))),
         service=str(notify_data.get("service", "ZhihuPipeline")),
         timeout=int(notify_data.get("timeout", telegram_data.get("timeout", 300)))
@@ -158,8 +162,14 @@ def load_config(config_path: str = "config.yaml") -> Config:
         archive_name=sync_data.get("archive_name", "archive"),
         schedule_enabled=bool(sync_data.get("schedule_enabled", True)),
         schedule_interval_hours=float(sync_data.get("schedule_interval_hours", 2.0)),
-        schedule_jitter_minutes=float(sync_data.get("schedule_jitter_minutes", 25.0))
+        schedule_jitter_minutes=float(sync_data.get("schedule_jitter_minutes", 25.0)),
+        video_enabled=bool(sync_data.get("video_enabled", True)),
+        video_quality=str(sync_data.get("video_quality", "ld")).lower(),
+        video_max_size_mb=float(sync_data.get("video_max_size_mb", 50.0))
     )
+    if sync.video_quality not in {"ld", "sd", "hd", "fhd"}:
+        logger.warning(f"Unsupported sync.video_quality={sync.video_quality!r}; using 'ld'.")
+        sync.video_quality = "ld"
     output = OutputConfig(
         vault_path=os.environ.get("OUTPUT_VAULT_PATH", output_data.get("vault_path", "~/notes")),
         collection_dir=output_data.get("collection_dir", "知乎收藏"),
@@ -171,6 +181,7 @@ def load_config(config_path: str = "config.yaml") -> Config:
         base_url=tagger_data.get("base_url", "http://localhost:11434/v1"),
         model=tagger_data.get("model", "qwen2.5:3b"),
         timeout=int(tagger_data.get("timeout", 120)),
+        api_key=str(os.environ.get("TAGGER_API_KEY", tagger_data.get("api_key", ""))),
         valid_domains=tagger_data.get("valid_domains", TaggerConfig().valid_domains)
     )
 

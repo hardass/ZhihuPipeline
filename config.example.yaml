@@ -9,14 +9,14 @@ chrome:
 # Unified Notification Gateway (Cloudflare Worker notify-gateway)
 notify:
   enabled: true                                      # Enable notification gateway
-  gateway_url: "https://notify.perilcrosser.com/send" # Unified gateway endpoint
+  gateway_url: "https://notify.example.com/send"      # Replace with your gateway endpoint
   api_key: "YOUR_NOTIFY_GATEWAY_API_KEY"             # Or set via NOTIFY_GATEWAY_KEY or ~/.notify_key
   service: "ZhihuPipeline"                           # Service tag identifier
   timeout: 300                                       # Maximum wait time for QR code scanning in seconds
 
-# Telegram Notification (Optional: for direct bot polling / commands like /sync)
+# Telegram Bot control plane (Optional; scheduler and QR notifications do not need it)
 telegram:
-  enabled: true                                      # Enable Telegram bot commands
+  enabled: false                                     # Enable only if /sync and /status commands are wanted
   bot_token: "YOUR_TELEGRAM_BOT_TOKEN"               # Obtained from @BotFather
   chat_id: "YOUR_TELEGRAM_CHAT_ID"                   # Obtained from @userinfobot
   timeout: 300                                       # Maximum wait time for QR code scanning in seconds
@@ -44,6 +44,9 @@ sync:
   schedule_enabled: true          # Enable background automated periodic sync
   schedule_interval_hours: 2.0    # Average base interval in hours
   schedule_jitter_minutes: 25.0   # Random interval jitter (±25m) to avoid periodic crawling patterns
+  video_enabled: true             # Download videos embedded in Zhihu pins
+  video_quality: "ld"             # ld is the smallest rendition and is mobile-friendly
+  video_max_size_mb: 50.0          # Fail closed above the LiveSync/CouchDB safe boundary
 
 # Obsidian Output
 output:
@@ -65,13 +68,13 @@ selectors:
     author: "div.AuthorInfo meta[itemprop='name']"
     time: "div.ContentItem-time"
 
-# Auto-tagging (Local LM Studio or Cloud API)
+# Auto-tagging (GB10 remote service or another OpenAI-compatible API)
 tagger:
-  enabled: false                   # Global toggle: false = download only, no tagging
-  backend: "openai_compatible"     # Works with LM Studio, DeepSeek, SiliconFlow, OpenAI, etc.
-  base_url: "http://localhost:1234/v1"  # Default is local LM Studio (Apple Silicon MLX). For DeepSeek use https://api.deepseek.com/v1
-  model: "qwen2.5-3b-instruct-mlx" # For DeepSeek use "deepseek-chat"
-  api_key: ""                      # Leave empty for local LM Studio. Required for Cloud APIs.
+  enabled: true                    # NAS mode: download and tag before GitHub push
+  backend: "openai_compatible"    # Works with GB10, LM Studio, DeepSeek, SiliconFlow, OpenAI, etc.
+  base_url: "https://your-gb10-host.example/v1"
+  model: "qwen3-coder-next"
+  api_key: "YOUR_TAGGER_API_KEY"  # Prefer TAGGER_API_KEY instead of committing a key to disk.
   timeout: 120                     # Inference timeout (seconds)
   valid_domains:
     - AI

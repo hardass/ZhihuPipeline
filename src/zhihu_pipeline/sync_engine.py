@@ -8,6 +8,13 @@ from zhihu_pipeline.auth import launch_browser_context, get_or_create_page, chec
 from zhihu_pipeline.fetcher import fetch_collections, fetch_collection_items, fetch_content_detail
 from zhihu_pipeline.parser import html_to_markdown
 from zhihu_pipeline.images import download_images
+from zhihu_pipeline.videos import (
+    VideoDownloadError,
+    download_videos,
+    extract_pin_detail,
+    extract_pin_video_assets,
+    render_video_embeds,
+)
 from zhihu_pipeline.comments import fetch_comments
 from zhihu_pipeline.storage import ManifestManager, generate_markdown, save_markdown_file, sanitize_filename, format_date
 from zhihu_pipeline.archiver import archive_item, remove_from_collection
@@ -34,6 +41,16 @@ class SyncEngine:
             headless=self.config.chrome.headless
         )
 
+    def _is_supported_item(self, item):
+        if item["type"] in ["answer", "article"]:
+            return True
+        if item["type"] == "pin" and self.config.sync.video_enabled:
+            try:
+                return bool(extract_pin_video_assets(item.get("raw_content") or {}, self.config.sync.video_quality))
+            except VideoDownloadError as error:
+                logger.warning(f"Skipping pin {item.get('id')} without a usable video rendition: {error}")
+        return False
+
     async def run(self, full_sync: bool = False, target_collection: str = None):
         """
         Orchestrate the full synchronization process.
@@ -42,7 +59,8 @@ class SyncEngine:
         
         # 0. Pull latest notes repository if Git sync is enabled
         if self.config.git.enabled and self.config.git.auto_pull:
-            git_pull(self.config.output.vault_path, self.config.git)
+            if not git_pull(self.config.output.vault_path, self.config.git):
+                raise RuntimeError("Git pull failed; refusing to sync against a stale vault.")
 
         # 1. Launch Browser Context
         try:
@@ -122,7 +140,7 @@ class SyncEngine:
                     item_id = item["id"]
                     
                     # Check item type
-                    if item_type not in ["answer", "article"]:
+                    if not self._is_supported_item(item):
                         logger.debug(f"Skipping local download for item {item_id} due to unsupported type: {item_type}")
                         if self.config.sync.auto_archive:
                             logger.info(f"'{item['title']}' is of unsupported type '{item_type}', but remains in active collection. Archiving on Zhihu...")
@@ -206,11 +224,20 @@ class SyncEngine:
                     logger.info(f"[{idx+1}/{len(new_items)}] Processing: {item_title} ({item_type} {item_id})")
                     
                     try:
-                        # Fetch details
-                        detail = await fetch_content_detail(page, item, self.config.selectors)
+                        # Fetch details. Pin content is already present in the collection API payload.
+                        if item_type == "pin":
+                            detail = extract_pin_detail(item)
+                        else:
+                            detail = await fetch_content_detail(page, item, self.config.selectors)
                         html_content = detail.get("content_html", "")
+
+                        pin_video_assets = []
+                        if item_type == "pin":
+                            pin_video_assets = extract_pin_video_assets(
+                                item.get("raw_content") or {}, self.config.sync.video_quality
+                            )
                         
-                        if not html_content:
+                        if not html_content and not pin_video_assets:
                             if detail.get("is_deleted"):
                                 logger.warning(f"Item is deleted on Zhihu: '{item_title}'. Marking as deleted in manifest.")
                                 self.manifest.add_item(unique_key, {
@@ -233,9 +260,26 @@ class SyncEngine:
                         sanitized_note_name = sanitize_filename(item_title)
                         markdown_body_local = await download_images(markdown_body, sanitized_note_name, self.config.output.vault_path)
 
+                        downloaded_videos = []
+                        if pin_video_assets:
+                            try:
+                                downloaded_videos = await download_videos(
+                                    pin_video_assets,
+                                    sanitized_note_name,
+                                    self.config.output.vault_path,
+                                    max_size_mb=self.config.sync.video_max_size_mb,
+                                )
+                            except VideoDownloadError as video_error:
+                                logger.error(f"Video download failed for {unique_key}: {video_error}")
+                                total_failed += 1
+                                continue
+                            video_md = render_video_embeds(downloaded_videos)
+                            if video_md:
+                                markdown_body_local = f"{markdown_body_local.strip()}\n\n{video_md}".strip()
+
                         # Fetch comments if requested
                         comments_md = ""
-                        if self.config.sync.include_comments:
+                        if self.config.sync.include_comments and item_type in ["answer", "article"]:
                             comments_md = await fetch_comments(page, item_type, str(item_id), self.config.sync.max_comments)
 
                         # Assemble final Markdown text
@@ -262,13 +306,18 @@ class SyncEngine:
                         # Update Manifest
                         rel_local_path = os.path.relpath(saved_path, self.config.output.vault_path)
                         initial_tagging_status = "pending"
-                        self.manifest.add_item(unique_key, {
+                        manifest_item = {
                             "title": item_title,
                             "type": item_type,
                             "local_path": rel_local_path,
                             "zhihu_url": item["url"],
                             "collection": col_title
-                        }, tagging_status=initial_tagging_status)
+                        }
+                        if downloaded_videos:
+                            manifest_item["video_quality"] = self.config.sync.video_quality
+                            manifest_item["video_paths"] = [video["vault_path"] for video in downloaded_videos]
+                            manifest_item["video_bytes"] = sum(video["size"] for video in downloaded_videos)
+                        self.manifest.add_item(unique_key, manifest_item, tagging_status=initial_tagging_status)
 
                         # Remove from collection if remove_after_sync is enabled (Inbox queue pattern)
                         if self.config.sync.remove_after_sync:
@@ -331,16 +380,26 @@ class SyncEngine:
             logger.info(f"Tagging finished: {success} tagged, {fail} failed (will retry next time).")
 
         # 4. Push updated notes repository to GitHub if Git sync is enabled
+        git_pushed = None
         if self.config.git.enabled and self.config.git.auto_push:
-            git_push(
+            git_pushed = git_push(
                 self.config.output.vault_path,
                 self.config.git,
-                f"docs: auto sync {total_synced} zhihu note(s) [skip ci]"
+                f"docs: auto sync {total_synced} zhihu note(s) [skip ci]",
+                # Notes and downloaded Zhihu videos are both pipeline-owned.
+                # Keep the scope explicit so private notes and .obsidian data
+                # in the shared vault can never be staged accidentally.
+                include_paths=[self.config.output.collection_dir, "assets/知乎视频"],
             )
+            if not git_pushed:
+                logger.error("GitHub push failed. The sync result is not fully published.")
 
         return {
             "synced": total_synced,
             "failed": total_failed,
+            "tagged": success if self.config.tagger.enabled else 0,
+            "tag_failed": fail if self.config.tagger.enabled else 0,
+            "git_pushed": git_pushed,
             "duration": str(duration)
         }
 

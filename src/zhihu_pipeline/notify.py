@@ -9,12 +9,12 @@ class Notifier:
     """
     Unified client for Cloudflare Worker Notification Gateway (notify-gateway).
     Decouples Telegram credentials from the application by routing notifications
-    through https://notify.perilcrosser.com/send.
+    through a user-configured gateway endpoint.
     """
 
     def __init__(self, config: Optional[NotifyConfig] = None):
         self.config = config or NotifyConfig()
-        self.gateway_url = self.config.gateway_url or "https://notify.perilcrosser.com/send"
+        self.gateway_url = self.config.gateway_url.strip()
         self.service_name = self.config.service or "ZhihuPipeline"
         self.api_key = self._resolve_api_key(self.config.api_key)
 

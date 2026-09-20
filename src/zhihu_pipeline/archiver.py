@@ -12,7 +12,14 @@ async def _open_collection_modal(page: Page, item_type: str = "answer") -> Optio
     else:
         container = page.locator(".Post-content, .Post-SideActions, .Post-topicsAndActions, body").first
 
-    collect_btn = container.locator('button:has(svg.Zi--Star, svg.Zi--StarFill), button:has-text("收藏"), button:has-text("已收藏")')
+    # A pin page can contain several collection buttons (for example in the
+    # side actions and the bottom action bar).  The operation is page-scoped,
+    # so use the first matching button instead of leaving a strict-mode
+    # locator unresolved.
+    collect_btn = container.locator(
+        'button:has(svg.Zi--Star, svg.Zi--StarFill), '
+        'button:has-text("收藏"), button:has-text("已收藏")'
+    ).first
     if await collect_btn.count() == 0:
         collect_btn = page.locator('button:has(svg.Zi--Star, svg.Zi--StarFill), button:has-text("收藏"), button:has-text("已收藏")').first
 

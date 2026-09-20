@@ -14,7 +14,7 @@ from .notify import Notifier
 
 
 class TelegramBotDaemon:
-    """Telegram Bot long-polling daemon for remote Zhihu Pipeline management."""
+    """Pipeline scheduler with an optional Telegram control plane."""
 
     def __init__(self, config: Config):
         self.config = config
@@ -128,13 +128,23 @@ class TelegramBotDaemon:
                 
                 synced_count = stats.get("synced", 0)
                 failed_count = stats.get("failed", 0)
+                tagged_count = stats.get("tagged", 0)
+                tag_failed_count = stats.get("tag_failed", 0)
+                git_pushed = stats.get("git_pushed")
+                if git_pushed is True:
+                    git_status = "GitHub 已推送"
+                elif git_pushed is False:
+                    git_status = "GitHub 推送失败（请检查日志）"
+                else:
+                    git_status = "GitHub 同步未启用"
                 
                 summary = (
                     "✅ *知乎收藏同步完成！*\n\n"
                     f"• *新同步篇数*: `{synced_count}` 篇\n"
                     f"• *失败篇数*: `{failed_count}` 篇\n"
+                    f"• *本次打标签*: `{tagged_count}` 成功 / `{tag_failed_count}` 失败\n"
                     f"• *任务耗时*: `{elapsed}` 秒\n"
-                    f"• *已自动推送*: GitHub `hardass/notes`\n"
+                    f"• *Git 状态*: `{git_status}`\n"
                     f"• *保存目录*: `{self.config.output.vault_path}`"
                 )
                 await self.send_message(chat_id, summary)
@@ -166,15 +176,25 @@ class TelegramBotDaemon:
                         logger.info("⏰ [Scheduled Sync] Starting automated periodic sync pass...")
                         stats = (await self.engine.run()) or {}
                         synced_count = stats.get("synced", 0)
-                        if synced_count > 0:
+                        if stats.get("git_pushed") is False:
+                            await self.notifier.notify_text(
+                                "知乎文章已处理，但 GitHub 推送失败；请检查 NAS 日志后再重试。",
+                                title="❌ Zhihu Pipeline 发布失败"
+                            )
+                        elif synced_count > 0:
                             summary = (
                                 f"• 发现并同步: <b>{synced_count}</b> 篇新文章\n"
-                                f"• 已自动推送: GitHub <code>hardass/notes</code>\n"
+                                "• 已自动推送到配置的 GitHub 仓库\n"
                                 f"• 保存目录: <code>{self.config.output.vault_path}</code>"
                             )
                             # Send via unified notification gateway
                             sent = await self.notifier.notify_text(summary, title="⏰ 定时自动同步完成！")
-                            if not sent and self.bot_token and self.admin_chat_id:
+                            if (
+                                not sent
+                                and self.config.telegram.enabled
+                                and self.bot_token
+                                and self.admin_chat_id
+                            ):
                                 await self.send_message(self.admin_chat_id, f"⏰ *定时自动同步完成！*\n\n{summary}")
                         else:
                             logger.info("[Scheduled Sync] Finished: 0 new items to download.")
@@ -229,20 +249,47 @@ class TelegramBotDaemon:
 
     async def run_polling(self):
         """Main long-polling loop."""
-        if not self.bot_token or not self.admin_chat_id:
-            logger.error("Telegram bot_token or chat_id is missing in configuration!")
-            return
-
         self.is_running = True
-        logger.info(f"Starting Telegram Bot daemon for admin chat {self.admin_chat_id}...")
-        await self.set_my_commands()
-        await self.send_message(self.admin_chat_id, "🚀 *Zhihu Pipeline 常驻守护机器人已启动！*\n发送 `/sync` 即可随时开始抓取。")
-
         # Launch periodic background sync worker
         schedule_task = asyncio.create_task(self.run_scheduled_sync_loop())
 
         try:
+            if not self.config.telegram.enabled:
+                logger.info("Telegram polling is disabled; scheduled sync remains active.")
+                await schedule_task
+                return
+
+            if not self.bot_token or not self.admin_chat_id:
+                logger.error("Telegram bot_token or chat_id is missing; scheduled sync remains active.")
+                await schedule_task
+                return
+
+            logger.info(f"Starting Telegram Bot daemon for admin chat {self.admin_chat_id}...")
             async with httpx.AsyncClient(timeout=35.0) as client:
+                # A revoked or malformed token returns 404. Keep the scheduler
+                # alive in degraded mode instead of retrying the same bad URL.
+                preflight = await client.get(f"{self.api_base}/getMe")
+                if preflight.status_code == 404:
+                    logger.error(
+                        "Telegram bot API returned 404; disabling Telegram polling "
+                        "while keeping scheduled sync active."
+                    )
+                    await schedule_task
+                    return
+                if preflight.status_code != 200:
+                    logger.error(
+                        f"Telegram bot API preflight failed with status {preflight.status_code}; "
+                        "scheduled sync remains active."
+                    )
+                    await schedule_task
+                    return
+
+                await self.set_my_commands()
+                await self.send_message(
+                    self.admin_chat_id,
+                    "🚀 *Zhihu Pipeline 常驻守护机器人已启动！*\n发送 `/sync` 即可随时开始抓取。",
+                )
+
                 while self.is_running:
                     try:
                         params: dict[str, Any] = {"timeout": 30}
@@ -276,6 +323,15 @@ class TelegramBotDaemon:
             except asyncio.CancelledError:
                 pass
             logger.info("Telegram Bot daemon polling stopped.")
+
+    async def run_worker(self):
+        """Run only the scheduled pipeline worker, without Telegram polling."""
+        self.is_running = True
+        try:
+            await self.run_scheduled_sync_loop()
+        finally:
+            self.is_running = False
+            logger.info("Scheduled pipeline worker stopped.")
 
     def stop(self):
         """Signal the daemon to stop."""

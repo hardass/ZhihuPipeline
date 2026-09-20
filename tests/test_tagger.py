@@ -98,6 +98,55 @@ Body content
     assert success is True
 
 
+def test_tag_single_file_only_fills_missing_and_preserves_existing(monkeypatch, tmp_path):
+    file_path = tmp_path / "partial.md"
+    body = "\nBody starts with a deliberate leading newline.\n"
+    content = (
+        "---\n"
+        "title: Source title\n"
+        "source: https://example.com/original\n"
+        "author:\n"
+        "- '[[Author]]'\n"
+        "created: 2026-09-01\n"
+        "tags:\n"
+        "- zhihu\n"
+        "- source-curated\n"
+        "domain:\n"
+        "- AI\n"
+        "concept:\n"
+        "- ExistingConcept\n"
+        "level: advanced\n"
+        "published: 2026-08-01\n"
+        "---\n"
+        + body
+    )
+    file_path.write_text(content, encoding="utf-8")
+
+    # The model result must not overwrite any source-owned field.
+    frontmatter_result = {
+        "domain": ["Life"],
+        "concept": ["new-concept"],
+        "level": "beginner",
+        "summary": "Model summary",
+    }
+    monkeypatch.setattr(
+        "zhihu_pipeline.tagger.call_llm_api",
+        lambda *args, **kwargs: frontmatter_result,
+    )
+
+    assert tag_single_file(str(file_path), DummyConfig()) is True
+    rewritten = file_path.read_text(encoding="utf-8")
+    assert rewritten.endswith(body)
+    parsed = yaml.safe_load(rewritten.split("---\n", 2)[1])
+    assert parsed["title"] == "Source title"
+    assert parsed["source"] == "https://example.com/original"
+    assert parsed["domain"] == ["AI"]
+    assert parsed["concept"] == ["ExistingConcept"]
+    assert parsed["level"] == "advanced"
+    assert parsed["summary"] == "Model summary"
+    assert parsed["tags"] == ["zhihu", "source-curated", "new-concept"]
+
+
 # ============================================================
 # New tests: Layer 2 — sanitize_term
 # ============================================================

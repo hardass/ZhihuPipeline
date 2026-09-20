@@ -8,7 +8,7 @@ def test_notifier_text_success():
     async def _run():
         config = NotifyConfig(
             enabled=True,
-            gateway_url="https://notify.perilcrosser.com/send",
+            gateway_url="https://notify.example.test/send",
             api_key="test_api_key",
             service="ZhihuPipeline"
         )
@@ -24,7 +24,7 @@ def test_notifier_text_success():
             assert ok is True
             mock_post.assert_called_once()
             args, kwargs = mock_post.call_args
-            assert args[0] == "https://notify.perilcrosser.com/send"
+            assert args[0] == "https://notify.example.test/send"
             assert kwargs["headers"]["Authorization"] == "Bearer test_api_key"
             assert kwargs["headers"]["User-Agent"] == "NotifyClient/1.0"
             assert kwargs["json"]["message"] == "Hello World"
@@ -38,7 +38,7 @@ def test_notifier_photo_success():
     async def _run():
         config = NotifyConfig(
             enabled=True,
-            gateway_url="https://notify.perilcrosser.com/send",
+            gateway_url="https://notify.example.test/send",
             api_key="test_api_key",
             service="ZhihuPipeline"
         )
@@ -53,7 +53,7 @@ def test_notifier_photo_success():
             assert ok is True
             mock_post.assert_called_once()
             args, kwargs = mock_post.call_args
-            assert args[0] == "https://notify.perilcrosser.com/send"
+            assert args[0] == "https://notify.example.test/send"
             assert kwargs["headers"]["Authorization"] == "Bearer test_api_key"
             assert kwargs["headers"]["User-Agent"] == "NotifyClient/1.0"
             assert kwargs["data"]["caption"] == "Scan QR"

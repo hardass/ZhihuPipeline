@@ -21,6 +21,8 @@ VALID_LEVELS = ["beginner", "intermediate", "advanced"]
 SYSTEM_PROMPT = (
     "You are a knowledge classification assistant. "
     "You MUST respond ONLY with a valid JSON object matching the requested schema. "
+    "The existing Obsidian frontmatter is authoritative: never delete, rename, or overwrite existing properties or tags. "
+    "Only propose missing classification fields; any disagreement with an existing value must be sent to a separate audit/review pass. "
     "Do NOT include markdown code block wrappers (```json ... ```) or any other text. "
     "STRICT FORMATTING RULES for the 'concept' field: "
     "(1) Acronyms must be ALL-CAPS: RAG, LLM, MCP, NLP, API, GPU, NFC, TDD, SFT, PRD, BM25, BGE, VIX. "
@@ -195,7 +197,7 @@ def call_llm_api(content: str, cfg, pbar=None) -> dict:
 
     full_text = ""
     # trust_env=False prevents HTTPX from using local system proxies for localhost requests.
-    timeout = 600.0  # Increased for NAS CPU inference
+    timeout = float(getattr(cfg, "timeout", 600.0) or 600.0)
     with httpx.Client(timeout=timeout, trust_env=False) as client:
         with client.stream("POST", url, json=payload, headers=headers) as response:
             response.raise_for_status()
@@ -272,8 +274,11 @@ def tag_single_file(file_path: str, cfg, pbar=None) -> bool:
         logger.error(f"Failed to parse YAML frontmatter in {file_path}: {e}")
         return False
 
-    # Idempotency check: skip LLM if already fully tagged
-    if "domain" in frontmatter and "concept" in frontmatter and "level" in frontmatter:
+    # Idempotency check: skip the downloader tagger if already fully tagged.
+    # Existing complete notes are handled by the separate audit/review workflow;
+    # this ingestion process must not silently rewrite them.
+    if all(frontmatter.get(key) not in (None, "", [])
+           for key in ("domain", "concept", "level", "summary")):
         logger.info(f"File is already tagged, skipping: {os.path.basename(file_path)}")
         return True
 
@@ -284,31 +289,34 @@ def tag_single_file(file_path: str, cfg, pbar=None) -> bool:
     try:
         result = call_llm_api(body, cfg, pbar=pbar)
 
-        # Inject classifications (already sanitized inside call_lm_studio)
-        frontmatter["domain"] = result["domain"]
-        frontmatter["concept"] = result["concept"]
-        frontmatter["level"] = result["level"]
-        frontmatter["summary"] = result["summary"]
+        # Fill only missing classification fields. Existing frontmatter is
+        # user/source-owned and must never be overwritten by ingestion.
+        for key in ["domain", "concept", "level", "summary"]:
+            if key not in frontmatter or frontmatter[key] in (None, "", []):
+                frontmatter[key] = result[key]
 
         # Sync concept terms into frontmatter['tags'] for Obsidian tag tree & graph view compatibility
-        existing_tags = frontmatter.get("tags", [])
-        if not isinstance(existing_tags, list):
-            existing_tags = []
+        existing_tags = frontmatter.get("tags")
 
-        # Filter out blacklisted tags (including 'zhihu')
-        cleaned_existing = [t for t in existing_tags if t not in BLACKLIST and t.strip()]
-
-        # Combine concept terms into tags (preserving order and uniqueness)
-        merged_tags = list(cleaned_existing)
-        for c_term in result["concept"]:
-            if c_term and c_term not in merged_tags and c_term.lower() not in BLACKLIST:
-                merged_tags.append(c_term)
-
-        frontmatter["tags"] = merged_tags
+        # Tags are additive. Preserve every existing value, including source
+        # labels such as `zhihu` or `clippings`; no ingestion pass may perform
+        # subtraction. A non-list value is left untouched for human review.
+        if isinstance(existing_tags, list):
+            merged_tags = list(existing_tags)
+            normalized_existing = {str(tag).casefold() for tag in merged_tags}
+            for c_term in result["concept"]:
+                if c_term and str(c_term).casefold() not in normalized_existing:
+                    merged_tags.append(c_term)
+                    normalized_existing.add(str(c_term).casefold())
+            frontmatter["tags"] = merged_tags
+        elif "tags" not in frontmatter or frontmatter["tags"] in (None, ""):
+            frontmatter["tags"] = list(result["concept"])
 
         # Write back to file
         fm_str = yaml.safe_dump(frontmatter, allow_unicode=True, default_flow_style=False, sort_keys=False)
-        new_content = f"---\n{fm_str}---\n\n{body.lstrip()}"
+        # Keep the body byte-for-byte unchanged. Only the YAML block may be
+        # changed by this ingestion pass.
+        new_content = f"---\n{fm_str}---\n" + body
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(new_content)
 

@@ -2,6 +2,33 @@
 
 本文件记录项目的重大变更、安全修复和架构调整，供后续维护者和 Agent 参考。
 
+## [2026-09-20] Low-resolution Zhihu video archiving
+
+- Added support for downloading video Pins at the configured quality; `ld` is the default.
+- Added per-video size limits, atomic writes, manifest metadata, and Obsidian video embeds.
+- Git sync now stages only the Zhihu collection directory and `assets/知乎视频/`.
+- Added regression coverage for rendition selection and video metadata extraction.
+- Removed deployment-specific repository paths and notification endpoints from public-facing defaults and documentation.
+
+---
+
+## [2026-09-16] Disable Telegram polling in production
+
+- Added a dedicated `worker` entrypoint for scheduled sync without Telegram long-polling.
+- Production Compose now runs `worker` with `telegram.enabled=false`.
+- Notify Gateway remains enabled for QR-code, login, and failure notifications.
+
+---
+
+## [2026-09-16] Pipeline state and shared-vault hardening
+
+- Corrupt `manifest.json` now fails closed instead of being replaced with an empty manifest.
+- Manifest writes use a sibling temporary file, `fsync`, and atomic replacement.
+- NAS Git pushes can be scoped to the Zhihu directory so unrelated private-note changes are not staged by the pipeline.
+- Git pull/push failures are surfaced instead of being reported as successful synchronization.
+- Tagger inference now honors the configured timeout.
+- Added a Docker build-context ignore list and regression tests for manifest recovery behavior.
+
 ---
 
 ## [2026-09-03] 安全审计与修复
@@ -14,22 +41,21 @@
 
 #### 1. 🔴 Git Remote URL 泄露 PAT (Critical)
 
-- **问题**：`.git/config` 的 `origin` remote URL 中直接嵌入了 GitHub Personal Access Token (PAT)，形如 `https://github_pat_XXXX@github.com/hardass/ZhihuPipeline.git`。任何能读取 `.git/config` 的人/进程都可以获取该 Token。
-- **修复**：将 remote URL 切换为 SSH 协议 `git@github.com:hardass/ZhihuPipeline.git`。
+- **问题**：`.git/config` 的 `origin` remote URL 中直接嵌入了 GitHub Personal Access Token (PAT)。任何能读取 `.git/config` 的人/进程都可能获取该 Token。
+- **修复**：将 remote URL 切换为 SSH 协议，并从公开文档中删除具体仓库账号和凭据样例。
 - **附带操作**：
-  - 通过 `gh ssh-key add` 将本机 `~/.ssh/id_ed25519.pub` 公钥注册到 GitHub 账号（title: `MacBook-ed25519`）。
-  - 需要先执行 `gh auth refresh -s admin:public_key` 补充 OAuth scope 才能完成此操作。
-- **后续建议**：被泄露的 PAT (`github_pat_11AALPQAI0...`) 应在 GitHub Settings → Developer settings → Personal access tokens 中 **revoke**。
+  - SSH 公钥应通过 GitHub 账户设置或组织管理流程配置。
+- **后续建议**：任何曾经出现在 remote URL、日志或文档中的 PAT 都必须立即撤销并重新生成。
 
 #### 2. 🟡 config.py 硬编码个人身份信息 (Medium)
 
 - **文件**：`src/zhihu_pipeline/config.py` (L164-165)
-- **问题**：`GitConfig` 的 `user_name` 和 `user_email` 字段使用了开发者个人信息作为最终 fallback 默认值 (`"hardass"` / `"hardas.yang@gmail.com"`)。如果其他人 fork 或部署此项目，会不知不觉使用这些身份提交。
+- **问题**：`GitConfig` 的 `user_name` 和 `user_email` 字段使用了开发者个人信息作为最终 fallback 默认值。如果其他人 fork 或部署此项目，会不知不觉使用这些身份提交。
 - **修复**：将最终 fallback 改为空字符串 `""`。配置优先级链不变：`环境变量 → config.yaml → ""`。
 
 ```diff
-- user_name=str(os.environ.get("GIT_USER_NAME", git_data.get("user_name", "hardass"))),
-- user_email=str(os.environ.get("GIT_USER_EMAIL", git_data.get("user_email", "hardas.yang@gmail.com"))),
+- user_name=str(os.environ.get("GIT_USER_NAME", git_data.get("user_name", ""))),
+- user_email=str(os.environ.get("GIT_USER_EMAIL", git_data.get("user_email", ""))),
 + user_name=str(os.environ.get("GIT_USER_NAME", git_data.get("user_name", ""))),
 + user_email=str(os.environ.get("GIT_USER_EMAIL", git_data.get("user_email", ""))),
 ```
