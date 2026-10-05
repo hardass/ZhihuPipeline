@@ -1,0 +1,18 @@
+[Unit]
+Description=GB10 Qwen3-Coder-Next vLLM API
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=perilops
+WorkingDirectory=/home/perilops/vllm-qwen029-coder-next
+ExecStart=/home/perilops/vllm-qwen029-coder-next/launch-vllm-029-profile.sh
+Restart=on-failure
+RestartSec=15
+KillSignal=SIGTERM
+TimeoutStopSec=90
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

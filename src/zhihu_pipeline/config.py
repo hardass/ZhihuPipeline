@@ -95,6 +95,7 @@ class SelectorsConfig:
 @dataclass
 class GitConfig:
     enabled: bool = False
+    sync_mode: str = "git"  # "git" or "livesync"
     repo_url: str = ""
     branch: str = "main"
     user_name: str = ""
@@ -188,6 +189,7 @@ def load_config(config_path: str = "config.yaml") -> Config:
     git_data = data.get("git") or {}
     git = GitConfig(
         enabled=bool(os.environ.get("GIT_ENABLED", git_data.get("enabled", False))),
+        sync_mode=git_data.get("sync_mode", "git"),
         repo_url=str(os.environ.get("GIT_REPO_URL", git_data.get("repo_url", ""))),
         branch=str(os.environ.get("GIT_BRANCH", git_data.get("branch", "main"))),
         user_name=str(os.environ.get("GIT_USER_NAME", git_data.get("user_name", ""))),

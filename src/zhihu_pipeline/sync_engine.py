@@ -379,20 +379,25 @@ class SyncEngine:
             success, fail = run_tagging_pass(self.manifest, self.config.output.vault_path, self.config.tagger)
             logger.info(f"Tagging finished: {success} tagged, {fail} failed (will retry next time).")
 
-        # 4. Push updated notes repository to GitHub if Git sync is enabled
+        # 4. Push updated notes repository to GitHub if Git sync is enabled and mode is 'git'
         git_pushed = None
         if self.config.git.enabled and self.config.git.auto_push:
-            git_pushed = git_push(
-                self.config.output.vault_path,
-                self.config.git,
-                f"docs: auto sync {total_synced} zhihu note(s) [skip ci]",
-                # Notes and downloaded Zhihu videos are both pipeline-owned.
-                # Keep the scope explicit so private notes and .obsidian data
-                # in the shared vault can never be staged accidentally.
-                include_paths=[self.config.output.collection_dir, "assets/知乎视频"],
-            )
-            if not git_pushed:
-                logger.error("GitHub push failed. The sync result is not fully published.")
+            if self.config.git.sync_mode == "livesync":
+                logger.info("Sync mode is 'livesync'; skipping GitHub push to save bandwidth/quota.")
+                git_pushed = True # Mark as "done" in terms of sync responsibility
+            else:
+                git_pushed = git_push(
+                    self.config.output.vault_path,
+                    self.config.git,
+                    f"docs: auto sync {total_synced} zhihu note(s) [skip ci]",
+                    # Notes and downloaded Zhihu videos are both pipeline-owned.
+                    # Keep the scope explicit so private notes and .obsidian data
+                    # in the shared vault can never be staged accidentally.
+                    include_paths=[self.config.output.collection_dir, "assets/知乎视频"],
+                )
+                if not git_pushed:
+                    logger.error("GitHub push failed. The sync result is not fully published.")
+
 
         return {
             "synced": total_synced,

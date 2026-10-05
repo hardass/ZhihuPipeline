@@ -59,6 +59,10 @@ notes/
 logs/
 *.log
 
+# Zhihu Pipeline Data (Large Files - use LiveSync instead of Git)
+知乎收藏/
+assets/知乎视频/
+
 
 # Local Tagger Scripts
 run_local_tagger.command
