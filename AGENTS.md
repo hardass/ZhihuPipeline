@@ -28,7 +28,7 @@ sudo -n "$QNAP_DOCKER" -H unix:///var/run/docker.sock logs --tail 200 zhihu-pipe
 - manifest 损坏、Git pull 失败或外部模型不可用时必须 fail closed；不能把损坏 manifest 当空数据继续运行。
 - 不读取或输出 Telegram token、GitHub 凭据、模型 API key；健康检查只报告脱敏后的状态码和错误类型。
 
-## 当前已知运行状态（2026-09-16）
+## 当前已知运行状态（2026-09-16，历史快照）
 
 - `zhihu-pipeline` 已按用户授权重新启动；当前 Docker 状态为 `running`，重启次数为 0，`OOMKilled=false`。
 - 生产容器已切换为 `worker` 入口，`telegram.enabled=false`，不再启动 Telegram polling；Telegram token 不再是生产主流程依赖。
@@ -37,3 +37,20 @@ sudo -n "$QNAP_DOCKER" -H unix:///var/run/docker.sock logs --tail 200 zhihu-pipe
 - Mac 工作树中验证过的 manifest 防护、原子写入、Git pull fail-closed、范围化 push、tagger timeout 和 Telegram 降级修复已部署到 NAS。
 - NAS 配置中的 GitHub remote 已恢复有效认证；容器内 `git pull --rebase origin main` 已成功，工作树干净，当前相对 `origin/main` 为 `ahead 2`。
 - 尚未主动触发完整知乎下载/打标签批处理，避免在验收前制造新的文章或提交；已完成 Git pull、GB10 tagger 预检和 worker 启动验收。
+
+
+## 当前已知运行状态（2026-10-07）
+
+- 投递通道：NAS `zhihu-pipeline` 容器 `running`、`restarts=0`，`git.sync_mode: "git"`，GitHub 投递已恢复正常。附件迁移已由 NAS 原子提交 `ff40e31` 推到 notes 仓库，Mac 已 fast-forward 拉取，手机渲染验证通过。
+- LiveSync 节点：镜像 `zhihu-livesync-node:1.0.35` 已构建；`/share/homes/hardass/zhihu-vault` 已建立（知乎专用，正文真拷贝、附件硬链接）；`livesync-settings.json` 已写入白名单 `^知乎收藏/|^assets/知乎视频/|^assets/知乎附件/` 与 `deviceAndVaultName=zhihu-node`；`mirror` 范围验证通过（3711 条，与磁盘双向差集 0，无私人路径、无 manifest.json）。
+- **未完成且需人工接手的第一件事**：CouchDB 目前处于 `locked:false`，且那次开关把 `accepted_nodes` 重置成只剩 MacBook 一个节点。恢复流程见 `deploy/livesync-node/README.md`「首次接入的顺序与两个实测坑」：先让其它设备各打开一次 Obsidian 重新入列，名单齐全后再加锁，最后验证锁着仍能同步。**不要在名单只有 1 个节点时加锁**，那会静默挡住仍在正常同步的设备。
+- **待决策**：`sync` 是整库复制，`syncOnlyRegEx` 只约束文件、不约束复制范围，节点会在 NAS 上维持一份全库（约 4.3GB、且节点握有口令）的副本。要么接受它并在切换 `vault_path` 后删除旧的明文整库目录，要么给 CouchDB 配 per-user 文档过滤。首次 `sync` 在 28 分钟后被人工中止，未向生产库写入任何文档（探针文档仍为 `not_found`），`node-data` 停在约 925MB 的半复制状态，续跑异常就清空重做。
+- 已知未修（与同步链路无关，刻意不捆在一起）：notify 网关返回 401（NAS 配置里的 api_key 无效，导致告警发不出去）；GB10 打标端点返回 530，每轮固定若干篇 `tagging failed`。
+- 回滚点：NAS 源码 `backups/src-pre-livesync-fix-20261006-212911`（含被就地改坏的 `sync_engine.py`）；附件迁移 `backups/pre-attachm-20261007-080102`（正文真拷贝 + 附件硬链接）。
+
+## NAS 运维陷阱（实测）
+
+- **单文件 bind mount 只认 inode。** 用编辑器保存或 `sed -i` 改 `config.yaml` 会替换 inode，容器内读到的仍是旧内容，必须重启容器才会重新解析绑定路径。原地写入请用 `cat new > old`，或改完固定重启一次。
+- 判断容器是否真的加载了新代码：`src` 是 live mount，但 Python 进程只在启动时导入，**改完源码同样需要重启容器**；`docker exec ... python -m zhihu_pipeline status` 可以另起进程验证新代码。
+- NAS 上没有 `python3`、`comm`、`timeout`、`grep -P`（BusyBox 环境）；跨端脚本要用 POSIX 工具，或把逻辑放进容器内执行。
+- 校验 git 脏路径必须用 `git status --porcelain -z`：路径含空格时 git 一律加引号，`core.quotepath=off` 管不了这个，按行解析会误判成越界改动。

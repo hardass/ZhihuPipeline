@@ -195,16 +195,56 @@ class ManifestManager:
         # If it exists and status is not 'removed', it's synced
         return unique_key in synced_items and item.get("status") != "removed"
         
-    def add_item(self, unique_key: str, item_info: dict, tagging_status: str = "pending"):
+    def add_item(self, unique_key: str, item_info: dict, tagging_status: str = "pending",
+                 publish_status: str = "pending"):
+        """
+        Record one synced item.
+
+        ``publish_status`` tracks whether the note has actually left this
+        machine ("published"), or is still only on local disk ("pending" /
+        "failed" / "unverified"). The inbox may only be consumed for
+        "published" entries, so a stopped delivery channel cannot delete the
+        Zhihu source of a note that exists nowhere else.
+        """
         if "synced_items" not in self.data:
             self.data["synced_items"] = {}
         item_info["synced_at"] = datetime.now().isoformat()
         item_info["status"] = "synced"
         item_info["tagging_status"] = tagging_status
         item_info["tagged_at"] = None
+        item_info["publish_status"] = publish_status
+        item_info["published_at"] = (
+            datetime.now().isoformat() if publish_status == "published" else None
+        )
         self.data["synced_items"][unique_key] = item_info
         self.data["last_sync"] = datetime.now().isoformat()
         self.save()
+
+    def update_publish_status(self, unique_key: str, status: str):
+        """status: one of "pending", "published", "failed", "unverified"."""
+        synced_items = self.data.get("synced_items", {})
+        if unique_key in synced_items:
+            synced_items[unique_key]["publish_status"] = status
+            if status == "published":
+                synced_items[unique_key]["published_at"] = datetime.now().isoformat()
+            self.save()
+
+    def get_publish_pending_items(self) -> list:
+        """
+        Return (unique_key, item) for synced items whose delivery is unproven.
+
+        Legacy manifests carry no publish_status at all. Those are treated as
+        pending, which is the conservative reading: the pipeline re-verifies
+        them against the delivery channel instead of assuming they arrived.
+        """
+        synced_items = self.data.get("synced_items", {})
+        result = []
+        for key, item in synced_items.items():
+            if item.get("status") == "removed":
+                continue
+            if item.get("publish_status", "pending") != "published":
+                result.append((key, item))
+        return result
         
     def mark_removed(self, unique_key: str):
         synced_items = self.data.get("synced_items", {})
@@ -245,5 +285,11 @@ class ManifestManager:
         return {
             "total_active": active,
             "total_removed": removed,
+            "total_unpublished": sum(
+                1
+                for item in synced_items.values()
+                if item.get("status") == "synced"
+                and item.get("publish_status", "pending") != "published"
+            ),
             "last_sync": self.data.get("last_sync", "")
         }

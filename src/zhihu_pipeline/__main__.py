@@ -1,4 +1,5 @@
 import asyncio
+import os
 import click
 from loguru import logger
 
@@ -119,6 +120,44 @@ def bot():
     finally:
         daemon.stop()
         loop.close()
+
+
+@cli.command("migrate-attachments")
+@click.option("--vault", default=None, help="Vault path; defaults to output.vault_path from config.yaml")
+@click.option("--apply", "do_apply", is_flag=True, help="Actually move directories and rewrite links (default: dry run)")
+@click.option("--force", is_flag=True, help="Also move directories that notes outside the collection reference (breaks those links)")
+def migrate_attachments_cmd(vault, do_apply, force):
+    """
+    Move Zhihu image attachments from assets/<note title>/ to assets/知乎附件/.
+
+    Needed so a Self-hosted LiveSync node can be allow-listed by path without
+    either dropping Zhihu images or pulling unrelated private attachments onto
+    the NAS. Dry run by default; re-running after a migration is a no-op.
+    """
+    from zhihu_pipeline.images import ZHIHU_ATTACHMENT_ROOT
+    from zhihu_pipeline.migrate_attachments import migrate
+
+    config = load_config()
+    vault_path = os.path.abspath(os.path.expanduser(vault)) if vault else config.output.vault_path
+    logger.info(f"Migration target vault: {vault_path}")
+    report = migrate(vault_path, config.output.collection_dir, apply=do_apply, force=force)
+
+    print("\n" + report.summary())
+    def _show(label, items, template):
+        for name in items[:20]:
+            print(f"  {label} {template.format(name=name)}")
+        if len(items) > 20:
+            print(f"  {label} ...另有 {len(items) - 20} 项")
+    _show("[move]", report.moved, "assets/{name} -> " + ZHIHU_ATTACHMENT_ROOT + "/{name}")
+    _show("[conflict]", report.conflicts, "assets/{name} 目标已存在，未移动")
+    _show("[missing]", report.missing, "assets/{name} 被引用但磁盘上不存在")
+    for name in sorted(report.external_refs)[:20]:
+        holders = report.external_refs[name]
+        print(f"  [held-back] assets/{name} 同时被 {len(holders)} 篇 collection 外笔记引用，例如 {holders[0]}")
+    _show("[rewrite]", report.rewritten_notes, "{name}")
+    if not do_apply and (report.moved or report.rewritten_notes):
+        print("\n这是空跑结果。加 --apply 才会真正执行。")
+
 
 @cli.command()
 def worker():

@@ -8,6 +8,31 @@ from loguru import logger
 # Regex to find markdown images: ![alt](url)
 IMAGE_REGEX = re.compile(r'!\[(.*?)\]\((https?://[^\s)]+)\)')
 
+# Every attachment this pipeline owns lives under one path prefix.
+#
+# Zhihu images used to land in `assets/<note title>/`, which shares its namespace
+# with attachments of private notes in the same vault. A Self-hosted LiveSync node
+# can only be restricted by path, and its allow-list applies in both directions,
+# so `^assets/` would either skip every Zhihu image or drag unrelated private
+# attachments onto the NAS. Keeping pipeline output under a dedicated prefix is
+# what makes the delivery whitelist tight.
+ZHIHU_ATTACHMENT_ROOT = "assets/知乎附件"
+
+def attachment_dir(vault_path: str, note_name: str) -> str:
+    """Absolute directory where a note's images belong."""
+    return os.path.join(vault_path, *ZHIHU_ATTACHMENT_ROOT.split("/"), note_name)
+
+def attachment_link(note_name: str, filename: str) -> str:
+    """
+    Markdown link relative to a note stored at {collection_dir}/{collection}/{note}.md.
+
+    Obsidian only needs spaces encoded; Chinese characters and '+' stay literal so
+    existing files keep resolving.
+    """
+    encoded_note_name = note_name.replace(" ", "%20")
+    encoded_filename = filename.replace(" ", "%20")
+    return f"../../{ZHIHU_ATTACHMENT_ROOT}/{encoded_note_name}/{encoded_filename}"
+
 def get_high_res_url(url: str) -> str:
     """
     Attempt to convert a Zhihu image URL to its highest resolution version (_1440w).
@@ -75,9 +100,8 @@ async def download_images(markdown_text: str, note_name: str, output_dir: str) -
     if not zhihu_images:
         return markdown_text
 
-    # Set up assets directory
-    # output_dir/assets/note_name/
-    assets_dir = os.path.join(output_dir, "assets", note_name)
+    # Set up assets directory: {vault}/assets/知乎附件/{note_name}/
+    assets_dir = attachment_dir(output_dir, note_name)
     os.makedirs(assets_dir, exist_ok=True)
     logger.info(f"Assets directory prepared: {assets_dir}")
 
@@ -114,13 +138,8 @@ async def download_images(markdown_text: str, note_name: str, output_dir: str) -
 
             filename = f"file-{timestamp_str}.{ext}"
             
-            # Obsidian only requires space characters to be encoded as %20 in Markdown links.
-            # Other characters like '+' and Chinese characters should be kept literal to prevent lookup failures.
-            encoded_note_name = note_name.replace(" ", "%20")
-            encoded_filename = filename.replace(" ", "%20")
-            
             target_path = os.path.join(assets_dir, filename)
-            local_rel_path = f"../../assets/{encoded_note_name}/{encoded_filename}"
+            local_rel_path = attachment_link(note_name, filename)
 
             logger.info(f"[{idx+1}/{len(zhihu_images)}] Processing image: {url}")
 

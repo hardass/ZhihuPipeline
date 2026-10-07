@@ -1,0 +1,53 @@
+services:
+  # Headless Self-hosted LiveSync node: mirrors the Zhihu-only vault directory
+  # into the existing CouchDB, so the NAS pipeline's output reaches the Mac and
+  # the phone without GitHub.
+  #
+  # This is deliberately NOT the Obsidian plugin and NOT a whole-vault client:
+  # it must only ever see the Zhihu subtree (see livesync-settings.template.json
+  # and the ignore file). Pointing it at a directory that contains a .git
+  # checkout or private notes can propagate deletions to every device.
+  #
+  # Build the image from the upstream repository first:
+  #   git clone --depth 1 https://github.com/vrtmrz/obsidian-livesync.git
+  #   cd obsidian-livesync
+  #   docker build -f src/apps/cli/Dockerfile -t zhihu-livesync-node:latest .
+  livesync-node:
+    image: zhihu-livesync-node:latest
+    container_name: zhihu-livesync-node
+    network_mode: "host"          # reach CouchDB on 127.0.0.1:5984, no public tunnel
+    environment:
+      - TZ=Asia/Shanghai
+      - LIVESYNC_INTERVAL=60
+    # cron-style loop instead of `daemon` on purpose: `mirror` does not propagate
+    # deletions (a file missing on disk is restored from the database), while the
+    # daemon's chokidar watcher pushes every create/modify/delete to CouchDB.
+    # Switch to `command: ["daemon", "--interval", "60"]` only after a week of
+    # clean runs and after the path allow-list has been proven unbreakable.
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          echo "[livesync-node] $(date -u +%FT%TZ) mirror"
+          node /app/dist/index.cjs /data \
+            --settings /data/livesync-settings.json mirror /vault || \
+            echo "[livesync-node] mirror failed (exit $?)" >&2
+          echo "[livesync-node] $(date -u +%FT%TZ) sync"
+          node /app/dist/index.cjs /data \
+            --settings /data/livesync-settings.json sync || \
+            echo "[livesync-node] sync failed (exit $?)" >&2
+          sleep "${LIVESYNC_INTERVAL:-60}"
+        done
+    volumes:
+      # PouchDB state + settings. Never inside /vault, or the node would sync
+      # its own database into the notes.
+      - ${LIVESYNC_DATA_DIR:-./livesync-data}:/data
+      # The Zhihu-only vault directory produced by the pipeline.
+      - ${ZHIHU_VAULT_DIR:-/share/homes/hardass/zhihu-vault}:/vault:delegated
+    mem_limit: 512m               # the NAS has ~1.5GB free and has OOM-killed containers before
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

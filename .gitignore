@@ -47,6 +47,12 @@ htmlcov/
 config.yaml
 .env
 
+# LiveSync node state and credentials (livesync-settings.template.json stays
+# tracked; a filled-in settings file must never be committed)
+deploy/livesync-node/livesync-data/
+deploy/livesync-node/livesync-settings.json
+deploy/livesync-node/*.setup.uri
+
 # Git Worktrees
 .worktrees/
 

@@ -8,7 +8,7 @@ from typing import Optional, Any
 import httpx
 from loguru import logger
 
-from .config import Config
+from .config import Config, load_config
 from .sync_engine import SyncEngine
 from .notify import Notifier
 
@@ -26,6 +26,93 @@ class TelegramBotDaemon:
         self.sync_lock = asyncio.Lock()
         self.is_running = False
         self.last_update_id: Optional[int] = None
+        self._last_alert: tuple[str, float] = ("", 0.0)
+
+    # ------------------------------------------------------------ help/ops glue
+
+    def reload_config(self) -> Config:
+        """
+        Re-read config.yaml before every scheduled pass.
+
+        The file is bind-mounted into the container, so edits (vault path, sync
+        mode, inbox policy) currently require a container restart to take effect
+        mid-run. Reloading per tick keeps a repaired configuration live and
+        rebuilds the engine so a moved manifest is picked up too.
+        """
+        try:
+            new_config = load_config()
+        except Exception as exc:
+            logger.error(f"Cannot reload config.yaml, keeping the running one: {exc}")
+            return self.config
+        self.config = new_config
+        self.bot_token = new_config.telegram.bot_token
+        self.admin_chat_id = str(new_config.telegram.chat_id).strip()
+        self.notifier = Notifier(new_config.notify)
+        self.engine = SyncEngine(new_config)
+        return new_config
+
+    def publish_line(self, stats: dict) -> str:
+        """Human-readable delivery verdict that never claims an unused channel worked."""
+        channel = str(stats.get("publish_channel") or "none")
+        published = stats.get("published")
+        pending = stats.get("publish_pending") or []
+        error = stats.get("publish_error")
+        consumed = stats.get("inbox_consumed") or 0
+
+        labels = {"git": "GitHub", "livesync": "LiveSync 节点", "none": "无（未配置投递通道）"}
+        channel_label = labels.get(channel, channel)
+
+        if published is True:
+            verdict = "已确认送达"
+        elif published is False:
+            verdict = f"未确认送达（{pending.__len__()} 篇待补投）" if pending else "未确认送达"
+        else:
+            verdict = "本轮无新内容需投递"
+
+        if error:
+            verdict = f"{verdict}｜{error}"
+
+        return (
+            f"• *发布通道*: `{channel_label}`\n"
+            f"• *发布状态*: `{verdict}`\n"
+            f"• *收件箱消费*: `{consumed}` 篇"
+        )
+
+    async def notify(self, message: str, title: str = "Zhihu Pipeline") -> bool:
+        """Send an undeduplicated notice, falling back to Telegram when configured."""
+        sent = await self.notifier.notify_text(message, title=title)
+        if (
+            not sent
+            and self.config.telegram.enabled
+            and self.bot_token
+            and self.admin_chat_id
+        ):
+            await self.send_message(self.admin_chat_id, f"*{title}*\n{message}")
+        return sent
+
+    async def alert(self, message: str, title: str = "⚠️ Zhihu Pipeline 异常") -> bool:
+        """
+        Notify with a one-hour dedup window per distinct message.
+
+        A permanently broken channel must alert, but a two-hourly loop should not
+        turn into an unreadable stream of the same warning.
+        """
+        signature = message[:200]
+        now = time.time()
+        last_signature, last_time = self._last_alert
+        if signature == last_signature and now - last_time < 3600:
+            logger.warning(f"Alert deduplicated within one hour: {signature}")
+            return False
+        self._last_alert = (signature, now)
+        sent = await self.notifier.notify_text(message, title=title)
+        if (
+            not sent
+            and self.config.telegram.enabled
+            and self.bot_token
+            and self.admin_chat_id
+        ):
+            await self.send_message(self.admin_chat_id, f"*{title}*\n{message}")
+        return sent
 
 
     async def send_message(self, chat_id: str | int, text: str, parse_mode: str = "Markdown") -> bool:
@@ -99,12 +186,16 @@ class TelegramBotDaemon:
             interval = self.config.sync.schedule_interval_hours
             schedule_status = f"已启用（每 ~{interval} 小时）" if self.config.sync.schedule_enabled else "未启用"
 
+            stats = self.engine.manifest.get_stats()
             status_msg = (
                 "📊 *Zhihu Pipeline 运行状态*\n\n"
                 f"• *已同步总篇数*: `{total_items}` 篇\n"
+                f"• *投递未确认*: `{stats.get('total_unpublished', 0)}` 篇\n"
+                f"• *发布通道*: `{self.engine.publish_channel}`\n"
                 f"• *自动巡检周期*: `{schedule_status}`\n"
                 f"• *上次同步时间*: `{last_sync}`\n"
-                f"• *笔记保存路径*: `{self.config.output.vault_path}`\n\n"
+                f"• *笔记保存路径*: `{self.config.output.vault_path}`\n"
+                f"• *状态文件*: `{self.engine.manifest_path}`\n\n"
                 f"*各收藏夹统计*:\n{coll_summary}"
             )
             await self.send_message(chat_id, status_msg)
@@ -130,24 +221,24 @@ class TelegramBotDaemon:
                 failed_count = stats.get("failed", 0)
                 tagged_count = stats.get("tagged", 0)
                 tag_failed_count = stats.get("tag_failed", 0)
-                git_pushed = stats.get("git_pushed")
-                if git_pushed is True:
-                    git_status = "GitHub 已推送"
-                elif git_pushed is False:
-                    git_status = "GitHub 推送失败（请检查日志）"
-                else:
-                    git_status = "GitHub 同步未启用"
-                
+
                 summary = (
                     "✅ *知乎收藏同步完成！*\n\n"
                     f"• *新同步篇数*: `{synced_count}` 篇\n"
                     f"• *失败篇数*: `{failed_count}` 篇\n"
                     f"• *本次打标签*: `{tagged_count}` 成功 / `{tag_failed_count}` 失败\n"
                     f"• *任务耗时*: `{elapsed}` 秒\n"
-                    f"• *Git 状态*: `{git_status}`\n"
+                    f"{self.publish_line(stats)}\n"
                     f"• *保存目录*: `{self.config.output.vault_path}`"
                 )
                 await self.send_message(chat_id, summary)
+                pending_count = len(stats.get("publish_pending") or [])
+                if stats.get("published") is not True and synced_count:
+                    reason = stats.get("publish_error") or f"{pending_count} 篇尚未确认到达共享库"
+                    await self.alert(
+                        f"本轮新增 {synced_count} 篇笔记，但投递通道没有确认送达：{reason}",
+                        title="❌ Zhihu Pipeline 发布未确认",
+                    )
             except Exception as e:
                 logger.error(f"Sync failed in bot handler: {e}")
                 await self.send_message(chat_id, f"❌ *同步过程发生异常*:\n`{str(e)}`")
@@ -174,34 +265,49 @@ class TelegramBotDaemon:
                 else:
                     async with self.sync_lock:
                         logger.info("⏰ [Scheduled Sync] Starting automated periodic sync pass...")
+                        self.reload_config()
                         stats = (await self.engine.run()) or {}
                         synced_count = stats.get("synced", 0)
-                        if stats.get("git_pushed") is False:
-                            await self.notifier.notify_text(
-                                "知乎文章已处理，但 GitHub 推送失败；请检查 NAS 日志后再重试。",
-                                title="❌ Zhihu Pipeline 发布失败"
-                            )
-                        elif synced_count > 0:
-                            summary = (
-                                f"• 发现并同步: <b>{synced_count}</b> 篇新文章\n"
-                                "• 已自动推送到配置的 GitHub 仓库\n"
-                                f"• 保存目录: <code>{self.config.output.vault_path}</code>"
-                            )
-                            # Send via unified notification gateway
-                            sent = await self.notifier.notify_text(summary, title="⏰ 定时自动同步完成！")
-                            if (
-                                not sent
-                                and self.config.telegram.enabled
-                                and self.bot_token
-                                and self.admin_chat_id
-                            ):
-                                await self.send_message(self.admin_chat_id, f"⏰ *定时自动同步完成！*\n\n{summary}")
+                        published = stats.get("published")
+                        pending = stats.get("publish_pending") or []
+
+                        if synced_count == 0 and not pending and published is not False:
+                            logger.info("[Scheduled Sync] Finished: nothing new to download.")
                         else:
-                            logger.info("[Scheduled Sync] Finished: 0 new items to download.")
+                            summary_lines = [
+                                f"• 新同步: <b>{synced_count}</b> 篇",
+                                f"• 发布通道: <code>{stats.get('publish_channel', 'none')}</code>",
+                            ]
+                            if published is True:
+                                summary_lines.append(
+                                    f"• 投递状态: <b>已确认送达</b>（收件箱消费 {stats.get('inbox_consumed', 0)} 篇）"
+                                )
+                                title = "⏰ 定时自动同步完成"
+                            else:
+                                reason = stats.get("publish_error") or f"{len(pending)} 篇未确认"
+                                summary_lines.append(f"• 投递状态: <b>未确认</b> - {reason}")
+                                summary_lines.append(
+                                    "• 这些笔记仍留在知乎收藏夹里，下个周期会自动重试。"
+                                )
+                                title = "❌ Zhihu Pipeline 发布未确认"
+                            text = "\n".join(summary_lines)
+                            if published is True:
+                                await self.notify(text, title)
+                            else:
+                                # Deduplicated inside alert(): a dead channel must
+                                # page, but not once every two hours.
+                                await self.alert(text, title=title)
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"[Scheduled Sync] Error during pass: {e}")
+                # A swallowed scheduler exception is how a broken delivery stayed
+                # invisible last time: fail-closed aborts must reach the operator.
+                logger.exception(f"[Scheduled Sync] Error during pass: {e}")
+                await self.alert(
+                    f"定时同步这一轮直接失败了：{type(e).__name__}: {e}\n"
+                    "新笔记可能仍停留在 NAS 磁盘上，请检查容器日志。",
+                    title="❌ Zhihu Pipeline 同步中断",
+                )
 
             # Calculate next sleep interval with randomized jitter (e.g. 2h ± 25m -> 95m to 145m)
             base_sec = interval_hours * 3600

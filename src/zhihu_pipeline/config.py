@@ -51,6 +51,11 @@ class OutputConfig:
     vault_path: str = "~/notes"
     collection_dir: str = "知乎收藏"
     image_naming: str = "file-${date:YYYYMMDDHHmmssSSS}"
+    # Relative to vault_path. Empty keeps the legacy location
+    # "{collection_dir}/manifest.json". Prefer a dot-directory: Obsidian does
+    # not surface it, so neither the Git channel nor a LiveSync node can carry
+    # the pipeline state file to another device and resurrect stale records.
+    manifest_path: str = ""
 
     def __post_init__(self):
         self.vault_path = os.path.abspath(os.path.expanduser(self.vault_path))
@@ -95,7 +100,11 @@ class SelectorsConfig:
 @dataclass
 class GitConfig:
     enabled: bool = False
-    sync_mode: str = "git"  # "git" or "livesync"
+    # "git": publish through GitHub. "livesync": a headless LiveSync node owns
+    # delivery, so this pipeline must not touch GitHub at all (not even pull).
+    # "none": nothing publishes; the pipeline has to say so instead of claiming
+    # the notes were delivered.
+    sync_mode: str = "git"
     repo_url: str = ""
     branch: str = "main"
     user_name: str = ""
@@ -104,11 +113,39 @@ class GitConfig:
     auto_push: bool = True
 
 @dataclass
+class LiveSyncConfig:
+    """
+    Read-only verification against the Self-hosted LiveSync CouchDB backend.
+
+    This pipeline never writes to CouchDB itself: a separate headless LiveSync
+    node mirrors the vault directory into the database. The pipeline only asks
+    "did my files actually arrive?" before it may consume the Zhihu inbox, so a
+    silent node must not be mistaken for a successful sync.
+    """
+    enabled: bool = False
+    couchdb_url: str = ""          # e.g. http://127.0.0.1:5984 when on the same host
+    db_name: str = "obsidian-vault"
+    username: str = ""             # prefer LIVESYNC_COUCHDB_USER
+    password: str = ""             # prefer LIVESYNC_COUCHDB_PASSWORD
+    node_name: str = ""            # device_name written by the node (heartbeat)
+    timeout: float = 10.0
+    # How long to wait for the node to publish freshly written notes.
+    verify_timeout_seconds: float = 90.0
+    verify_poll_interval_seconds: float = 5.0
+    # A node that has not touched the milestone document this long is dead,
+    # and its silence must be reported as a failure rather than success.
+    node_max_stale_minutes: float = 30.0
+    # LiveSync can obfuscate document paths; then per-path existence checks are
+    # meaningless and only the replication cursor is usable.
+    use_path_obfuscation: bool = False
+
+@dataclass
 class Config:
     chrome: ChromeConfig = field(default_factory=ChromeConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     notify: NotifyConfig = field(default_factory=NotifyConfig)
     git: GitConfig = field(default_factory=GitConfig)
+    livesync: LiveSyncConfig = field(default_factory=LiveSyncConfig)
     sync: SyncConfig = field(default_factory=SyncConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     tagger: TaggerConfig = field(default_factory=TaggerConfig)
@@ -174,7 +211,8 @@ def load_config(config_path: str = "config.yaml") -> Config:
     output = OutputConfig(
         vault_path=os.environ.get("OUTPUT_VAULT_PATH", output_data.get("vault_path", "~/notes")),
         collection_dir=output_data.get("collection_dir", "知乎收藏"),
-        image_naming=output_data.get("image_naming", "file-${date:YYYYMMDDHHmmssSSS}")
+        image_naming=output_data.get("image_naming", "file-${date:YYYYMMDDHHmmssSSS}"),
+        manifest_path=str(output_data.get("manifest_path", "") or "").strip()
     )
     tagger = TaggerConfig(
         enabled=tagger_data.get("enabled", False),
@@ -187,22 +225,70 @@ def load_config(config_path: str = "config.yaml") -> Config:
     )
 
     git_data = data.get("git") or {}
+    livesync_data = data.get("livesync") or {}
+
+    # "false" is truthy in Python, so an env override must be parsed by value.
+    def _as_bool(raw: Any, default: bool = False) -> bool:
+        if isinstance(raw, bool):
+            return raw
+        if raw is None:
+            return default
+        return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+    sync_mode = str(
+        os.environ.get("GIT_SYNC_MODE", git_data.get("sync_mode", "git")) or "git"
+    ).strip().lower()
+    if sync_mode in {"livesync_node", "live-sync", "self_hosted_livesync"}:
+        sync_mode = "livesync"
+    if sync_mode not in {"git", "livesync", "none"}:
+        # Falling back to "git" here would silently push private notes to
+        # GitHub on a typo. "none" fails closed: nothing is published, nothing
+        # is consumed from the inbox, and the run reports it loudly.
+        logger.critical(
+            f"Unknown git.sync_mode={sync_mode!r}; refusing to guess. "
+            "Treating this run as sync_mode='none' (nothing will be published)."
+        )
+        sync_mode = "none"
+
     git = GitConfig(
-        enabled=bool(os.environ.get("GIT_ENABLED", git_data.get("enabled", False))),
-        sync_mode=git_data.get("sync_mode", "git"),
+        enabled=_as_bool(os.environ.get("GIT_ENABLED", git_data.get("enabled", False))),
+        sync_mode=sync_mode,
         repo_url=str(os.environ.get("GIT_REPO_URL", git_data.get("repo_url", ""))),
         branch=str(os.environ.get("GIT_BRANCH", git_data.get("branch", "main"))),
         user_name=str(os.environ.get("GIT_USER_NAME", git_data.get("user_name", ""))),
         user_email=str(os.environ.get("GIT_USER_EMAIL", git_data.get("user_email", ""))),
-        auto_pull=bool(git_data.get("auto_pull", True)),
-        auto_push=bool(git_data.get("auto_push", True))
+        auto_pull=_as_bool(git_data.get("auto_pull", True), True),
+        auto_push=_as_bool(git_data.get("auto_push", True), True)
     )
+
+    livesync = LiveSyncConfig(
+        enabled=_as_bool(os.environ.get("LIVESYNC_ENABLED", livesync_data.get("enabled", False))),
+        couchdb_url=str(os.environ.get(
+            "LIVESYNC_COUCHDB_URL", livesync_data.get("couchdb_url", "")
+        )).rstrip("/"),
+        db_name=str(os.environ.get("LIVESYNC_DB_NAME", livesync_data.get("db_name", "obsidian-vault"))),
+        username=str(os.environ.get("LIVESYNC_COUCHDB_USER", livesync_data.get("username", ""))),
+        password=str(os.environ.get("LIVESYNC_COUCHDB_PASSWORD", livesync_data.get("password", ""))),
+        node_name=str(os.environ.get("LIVESYNC_NODE_NAME", livesync_data.get("node_name", ""))),
+        timeout=float(livesync_data.get("timeout", 10.0)),
+        verify_timeout_seconds=float(livesync_data.get("verify_timeout_seconds", 90.0)),
+        verify_poll_interval_seconds=float(livesync_data.get("verify_poll_interval_seconds", 5.0)),
+        node_max_stale_minutes=float(livesync_data.get("node_max_stale_minutes", 30.0)),
+        use_path_obfuscation=_as_bool(livesync_data.get("use_path_obfuscation", False))
+    )
+    if sync_mode == "livesync" and not livesync.enabled:
+        logger.warning(
+            "git.sync_mode='livesync' but livesync.enabled=false: new notes will "
+            "land on disk with no way for this pipeline to confirm delivery, so "
+            "they will not be removed from the Zhihu inbox."
+        )
 
     return Config(
         chrome=chrome,
         telegram=telegram,
         notify=notify,
         git=git,
+        livesync=livesync,
         sync=sync,
         output=output,
         tagger=tagger,

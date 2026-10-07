@@ -2,6 +2,37 @@
 
 本文件记录项目的重大变更、安全修复和架构调整，供后续维护者和 Agent 参考。
 
+## [2026-10-06] Delivery is verified before the inbox is consumed
+
+The `git.sync_mode: livesync` switch only suppressed the GitHub push and then reported
+`git_pushed = True`, so notes were consumed from the Zhihu inbox while nothing published
+them. Delivery is now a first-class, verified step.
+
+- Added `publish_probe.py`: read-only CouchDB verification (document existence plus the
+  LiveSync node heartbeat in `_local/obsydian_livesync_milestone`). Unreachable, refused or
+  stale backends are errors, never "empty" and never "published".
+- `sync_mode` is now `git` | `livesync` | `none`, normalised from aliases, overridable with
+  `GIT_SYNC_MODE`, and an unknown value fails closed to `none` instead of guessing `git`.
+- `livesync` mode no longer contacts GitHub at all: neither push nor the per-run `git pull`
+  and `ensure_git_repo` side effects (`git init`, `remote set-url`, `branch -M`, global
+  `safe.directory`).
+- Inbox consumption is deferred until delivery is proven per note. `remove_after_sync` can no
+  longer delete a Zhihu source whose document has not reached the shared vault, and
+  cursor-only ("indirect") proof is explicitly not enough to delete anything.
+- Manifest records `publish_status` (`pending` / `published` / `failed` / `unverified`) so a
+  slow node is distinguishable from a dead one, and `/status` reports the unpublished backlog.
+- `manifest.json` can live in a dot-directory (`output.manifest_path`) outside the synced
+  subtree, with a one-time automatic migration that keeps existing records.
+- Notifications are channel-aware and truthful; scheduler exceptions and unconfirmed
+  deliveries now alert through the notify gateway with a one-hour dedup window.
+- `config.yaml` is re-read before each scheduled pass, so edits no longer need a container
+  restart to take effect.
+- Fixed `GIT_ENABLED=false` being parsed as enabled because `bool("false")` is truthy.
+- Added regression coverage for fail-closed probing, per-channel publishing, the deletion
+  safety valve, and manifest migration.
+
+---
+
 ## [2026-09-20] Low-resolution Zhihu video archiving
 
 - Added support for downloading video Pins at the configured quality; `ld` is the default.

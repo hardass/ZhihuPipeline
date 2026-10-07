@@ -22,15 +22,39 @@ telegram:
   timeout: 300                                       # Maximum wait time for QR code scanning in seconds
 
 
-# GitHub Auto-Sync (Automatically pushes notes & assets to your remote GitHub notes repository)
+# Delivery channel for notes produced by this pipeline.
+# "notes land on disk" is not the same as "notes were published", and the
+# pipeline now refuses to confuse the two: it only consumes an item from the
+# Zhihu inbox after the configured channel proves the document arrived.
 git:
-  enabled: false                                     # Set to true to enable auto git pull/push
+  enabled: false                                     # Set to true only for sync_mode: git
+  # git      -> publish with GitHub pull/push (this process owns delivery)
+  # livesync -> a headless Self-hosted LiveSync node mirrors the vault into
+  #             CouchDB; GitHub is not contacted at all, not even pulled
+  # none     -> nothing publishes (used to pause delivery safely)
+  sync_mode: "git"
   repo_url: "https://<USERNAME>:<PAT_OR_TOKEN>@github.com/<USERNAME>/<REPO>.git"
   branch: "main"
   user_name: "YOUR_GITHUB_USERNAME"
   user_email: "YOUR_GITHUB_EMAIL"
   auto_pull: true                                    # Pull latest notes before downloading
   auto_push: true                                    # Push new notes and assets after downloading
+
+# Self-hosted LiveSync delivery verification (read-only; only used when
+# git.sync_mode is "livesync"). This pipeline never writes to CouchDB itself -
+# it only asks whether the LiveSync node has published the new notes yet.
+livesync:
+  enabled: false                                     # true when a node mirrors this vault into CouchDB
+  couchdb_url: "http://127.0.0.1:5984"                # Same-host CouchDB avoids the public tunnel
+  db_name: "obsidian-vault"
+  username: "obsidian_admin"                          # Or LIVESYNC_COUCHDB_USER
+  password: ""                                        # Leave empty; set LIVESYNC_COUCHDB_PASSWORD
+  node_name: ""                                       # device_name the node writes in the milestone doc
+  timeout: 10.0                                       # Per-request HTTP timeout (seconds)
+  verify_timeout_seconds: 90.0                        # How long to wait for the node to publish
+  verify_poll_interval_seconds: 5.0
+  node_max_stale_minutes: 30.0                        # Older node heartbeat == dead channel
+  use_path_obfuscation: false                         # Keep false: cursor-only proof never justifies deleting a source
 
 # Sync Settings
 sync:
@@ -53,6 +77,12 @@ output:
   vault_path: "~/notes"           # Replace with your Obsidian vault path (supports ~ expansion)
   collection_dir: "知乎收藏"
   image_naming: "file-${date:YYYYMMDDHHmmssSSS}"
+  # State file location, relative to vault_path. A dot-directory is deliberate:
+  # Obsidian does not surface it, so neither the Git channel nor the LiveSync
+  # node can carry the pipeline's own state to another device and back. An
+  # existing {collection_dir}/manifest.json is migrated automatically once.
+  # Leave empty to keep the legacy location inside the synced tree.
+  manifest_path: ".pipeline/manifest.json"
 
 # CSS Selectors (Tweak selectors here if Zhihu frontend layout changes without altering source code)
 selectors:
