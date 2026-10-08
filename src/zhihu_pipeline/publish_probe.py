@@ -130,10 +130,6 @@ class PublishProber:
     def _base(self) -> str:
         return f"{self.config.couchdb_url.rstrip('/')}/{quote(self.config.db_name)}"
 
-    def _doc_url(self, vault_path: str) -> str:
-        cleaned = str(vault_path).lstrip("./").lstrip("/")
-        return f"{self._base()}/{quote(cleaned)}"
-
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
             self._client = httpx.AsyncClient(
@@ -147,10 +143,15 @@ class PublishProber:
             await self._client.aclose()
             self._client = None
 
-    async def _request(self, url: str, method: str = "GET") -> httpx.Response:
+    async def _request(
+        self,
+        url: str,
+        method: str = "GET",
+        json_body: Optional[dict] = None,
+    ) -> httpx.Response:
         client = await self._get_client()
         try:
-            res = await client.request(method, url)
+            res = await client.request(method, url, json=json_body)
         except httpx.HTTPError as exc:
             # An unreachable or misbehaving database proves nothing. Never map
             # it onto "the note was not published" silently, and never onto
@@ -208,13 +209,23 @@ class PublishProber:
 
         Returns ``None`` when no name is configured: the heartbeat gate is then
         simply not applied, and per-document existence remains the judge.
+
+        A CLI node re-registers under a fresh random id every time it starts while
+        keeping the same ``device_name`` (measured: three ``headless-vault-<hash>``
+        entries in one milestone document, only the newest one alive). Picking the
+        first name match therefore reports a live channel as dead, so the freshest
+        match wins.
         """
         if not self.config.node_name:
             return None
-        for node in await self.node_statuses():
-            if node.device_name == self.config.node_name or node.node_id == self.config.node_name:
-                return node
-        return None
+        matches = [
+            node
+            for node in await self.node_statuses()
+            if node.device_name == self.config.node_name or node.node_id == self.config.node_name
+        ]
+        if not matches:
+            return None
+        return max(matches, key=lambda node: node.last_connected_ms)
 
     async def node_is_fresh(self) -> tuple[bool, str]:
         """(alive, reason). A configured-but-absent or stale node is a failure."""
@@ -234,21 +245,60 @@ class PublishProber:
 
     # ---------------------------------------------------------- path existence
 
+    # ---------------------------------------------------------- path existence
+
+    @staticmethod
+    def _norm(vault_path: str) -> str:
+        """
+        Canonical document id for a vault-relative path.
+
+        Only leading "./" and "/" are removed - a plain ``lstrip("./")`` would also
+        eat the leading dot of a dotfile such as ``.DS_Store``.
+        """
+        path = str(vault_path).strip()
+        while path.startswith("./"):
+            path = path[2:]
+        return path.lstrip("/")
+
+    async def existing_docs(self, vault_paths: Sequence[str]) -> set[str]:
+        """
+        Which of ``vault_paths`` exist as documents, in batches.
+
+        Deliberately not a GET on the encoded path: document ids here are
+        vault-relative paths containing spaces and non-ASCII characters, and
+        ``GET /{db}/{quoted id}`` answers 404 for ids that ``POST /_all_docs``
+        returns with a revision (measured against the live database). Trusting the
+        URL form would report every delivered note as missing, which is fail-safe
+        but permanently blocks the inbox from being consumed.
+        """
+        paths = [self._norm(p) for p in vault_paths if self._norm(p)]
+        found: set[str] = set()
+        if not paths:
+            return found
+        url = f"{self._base()}/_all_docs"
+        for start in range(0, len(paths), 100):
+            batch = paths[start:start + 100]
+            res = await self._request(url, method="POST", json_body={"keys": batch})
+            if res.status_code != 200:
+                raise PublishProbeError(
+                    f"Unexpected HTTP {res.status_code} from _all_docs while checking delivery"
+                )
+            try:
+                rows = res.json().get("rows", [])
+            except (ValueError, AttributeError) as exc:
+                raise PublishProbeError(f"_all_docs returned an unusable body: {exc}") from exc
+            for row in rows:
+                if isinstance(row, dict) and "error" not in row and row.get("id"):
+                    found.add(str(row["id"]))
+        return found
+
     async def doc_exists(self, vault_path: str) -> bool:
-        res = await self._request(self._doc_url(vault_path), method="HEAD")
-        if res.status_code == 405:
-            # Some reverse proxies only forward GET; a bounded GET is equivalent.
-            res = await self._request(f"{self._doc_url(vault_path)}?limit=1")
-        return res.status_code == 200
+        return self._norm(vault_path) in await self.existing_docs([vault_path])
 
     async def missing_docs(self, vault_paths: Sequence[str]) -> list[str]:
-        missing: list[str] = []
-        for path in vault_paths:
-            if not str(path).strip():
-                continue
-            if not await self.doc_exists(path):
-                missing.append(path)
-        return missing
+        wanted = [self._norm(p) for p in vault_paths if self._norm(p)]
+        found = await self.existing_docs(wanted)
+        return [path for path in wanted if path not in found]
 
     # ------------------------------------------------------------- public API
 
