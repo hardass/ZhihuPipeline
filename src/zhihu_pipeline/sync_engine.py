@@ -731,16 +731,44 @@ class SyncEngine:
             logger.error(f"Authentication check failed: {e}")
             print(f"Zhihu Connection: FAILED. {e}")
 
+    def delivery_backlog(self) -> dict:
+        """
+        Split the unconfirmed backlog by whether anything is left to deliver.
+
+        ``waiting`` - the note is still on disk and the channel has not proved
+        delivery; this is the number that should be acted on.
+        ``gone``    - the recorded file no longer exists (archived, moved by hand,
+        or deleted on another device). These can never be delivered, and counting
+        them together with the real backlog left ``/status`` showing a permanent,
+        misleading non-zero figure.
+        """
+        vault = self.config.output.vault_path
+        waiting: list[str] = []
+        gone: list[str] = []
+        for key, item in self.manifest.get_publish_pending_items():
+            targets = self._publish_targets(item)
+            on_disk = bool(targets) and all(
+                os.path.exists(os.path.join(vault, p)) for p in targets
+            )
+            (waiting if on_disk else gone).append(key)
+        return {"waiting": waiting, "gone": gone}
+
     def show_status(self):
         """
         Utility command to print current sync stats.
         """
         stats = self.manifest.get_stats()
+        backlog = self.delivery_backlog()
         print("\n=== Zhihu Pipeline Sync Status ===")
         print(f"Manifest Path: {self.manifest_path}")
         print(f"Total Synced Items: {stats['total_active']}")
         print(f"Total Removed Items: {stats['total_removed']}")
-        print(f"Delivery Unconfirmed: {stats.get('total_unpublished', 0)}")
+        print(f"Delivery Waiting: {len(backlog['waiting'])}")
+        if backlog["gone"]:
+            print(
+                f"Delivery Unrecoverable: {len(backlog['gone'])} "
+                "(文件已不在磁盘上，无投递对象；不计入等待数)"
+            )
         print(f"Publish Channel: {self.publish_channel}")
         print(f"Last Sync Date: {stats['last_sync'] if stats['last_sync'] else 'Never'}")
         print("==================================\n")

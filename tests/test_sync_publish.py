@@ -400,3 +400,31 @@ def test_backlog_entries_whose_files_are_missing_are_left_alone(tmp_path):
     assert result["published"] is None
     assert "answer_404" not in result["confirmed"]
     assert engine.manifest.get_stats()["total_unpublished"] == 1
+
+
+def test_delivery_backlog_separates_waiting_from_unrecoverable(tmp_path):
+    """
+    `/status` used to show one blended "unconfirmed" count, so entries whose files
+    had been archived or deleted by hand kept the figure permanently non-zero.
+    """
+    engine = make_engine(tmp_path)
+    kept = tmp_path / "知乎收藏" / "我的收藏"
+    kept.mkdir(parents=True, exist_ok=True)
+    (kept / "here.md").write_text("# still on disk\n", encoding="utf-8")
+
+    engine.manifest.add_item(
+        "answer_here",
+        {"title": "Here", "local_path": "知乎收藏/我的收藏/here.md"},
+        publish_status="pending",
+    )
+    engine.manifest.add_item(
+        "answer_gone",
+        {"title": "Gone", "local_path": "知乎收藏/归档/gone.md"},
+        publish_status="pending",
+    )
+
+    backlog = engine.delivery_backlog()
+    assert backlog["waiting"] == ["answer_here"]
+    assert backlog["gone"] == ["answer_gone"]
+    # The headline number must not absorb the unrecoverable entries.
+    assert engine.manifest.get_stats()["total_unpublished"] == 2

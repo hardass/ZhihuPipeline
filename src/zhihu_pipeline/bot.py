@@ -187,10 +187,16 @@ class TelegramBotDaemon:
             schedule_status = f"已启用（每 ~{interval} 小时）" if self.config.sync.schedule_enabled else "未启用"
 
             stats = self.engine.manifest.get_stats()
+            backlog = self.engine.delivery_backlog()
+            delivery_line = f"• *投递等待中*: `{len(backlog['waiting'])}` 篇\n"
+            if backlog["gone"]:
+                delivery_line += (
+                    f"• *无法投递（文件已不在磁盘）*: `{len(backlog['gone'])}` 篇（不计入等待）\n"
+                )
             status_msg = (
                 "📊 *Zhihu Pipeline 运行状态*\n\n"
                 f"• *已同步总篇数*: `{total_items}` 篇\n"
-                f"• *投递未确认*: `{stats.get('total_unpublished', 0)}` 篇\n"
+                f"{delivery_line}"
                 f"• *发布通道*: `{self.engine.publish_channel}`\n"
                 f"• *自动巡检周期*: `{schedule_status}`\n"
                 f"• *上次同步时间*: `{last_sync}`\n"
