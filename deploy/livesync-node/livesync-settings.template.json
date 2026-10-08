@@ -43,7 +43,14 @@
     "trashInsteadDelete is NOT a safety feature any more (legacy key); the real",
     "guard is the cron-style mirror loop, which does not propagate deletions."
   ],
-  "syncIgnoreRegEx": "/\\.git/|/\\.pipeline/|/\\.obsidian/|/manifest\\.json$|^\\.livesync/",
+  "syncIgnoreRegEx": "/\\.git/|/\\.pipeline/|/\\.obsidian/|/manifest\\.json$|^\\.livesync/|(^|/)\\.DS_Store$",
+  "_ignore_why": [
+    "Nested vaults (Jobs/, Travel/Japan202606/, Investiment/) each carry their own",
+    ".obsidian/ settings; /\\.obsidian/ matches them at any depth. Without it the",
+    "node pushes 20+ editor-state and plugin files that no device wants, including",
+    "Jobs/.obsidian/github-sync.log - a log that grows on every write.",
+    ".DS_Store is macOS noise for the same reason."
+  ],
   "suspendFileWatching": false,
   "maxMTimeForReflectEvents": 0,
   "syncMaxSizeInMB": 50,

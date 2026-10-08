@@ -43,6 +43,35 @@ Settled the two questions that decide the rest of the cutover.
   `headless-vault-<hash>`; `deviceAndVaultName` is ignored, so `livesync.node_name`
   must be that hash or the heartbeat check always reads the node as stale.
 
+## [2026-10-08] Incident: the vault repo had become the only thing on the Mac's disk
+
+While measuring how far the NAS directory diverges from CouchDB before starting the
+node, the comparison came out backwards: 12631 file documents in the database against
+6760 files on disk, and **zero untracked files on the Mac** (`git ls-files` 6774 vs 6777
+on disk). The 2026-10-07 23:36 untracking commit had therefore been followed by a
+destructive checkout/clean, which deleted everything git never tracked:
+
+- every plugin's `main.js`/`manifest.json` — Obsidian on the Mac cannot load
+  Self-hosted LiveSync or Dataview any more, and had no sync path at all since then;
+- ~5900 files that only ever lived in LiveSync: `personal assets/` (2381), `onenote/`
+  (958), `assets/` attachments (3410), `Jobs/` (67).
+
+The data is not lost — it is in CouchDB and on the other devices — so the repair is to
+put the Mac back into the sync group and let it pull.
+
+- Restored `obsidian-livesync` **1.0.35** (`main.js`, `manifest.json`, `styles.css`) from
+  the official release, matching the node's `1.0.35-cli`; settings must come from a
+  Setup URI on a healthy device rather than from git history, which only holds the
+  1.0.21-era `data.json`.
+- Delivery paused deliberately: `git.sync_mode` → `none` in place (inode preserved), so
+  the pipeline cannot consume the Zhihu inbox while nothing publishes it.
+- Ignore list extended with `/\.obsidian/` and `\.DS_Store$`; the vault contains nested
+  Obsidian vaults (`Jobs/`, `Travel/Japan202606/`, `Investiment/`) whose editor state,
+  plugins and `github-sync.log` would otherwise all become documents.
+- Measured for future reference: CouchDB keys are lowercased vault-relative paths, the
+  original casing lives in `metadata.path`, and `doc_count` (66598) counts 53967 content
+  chunks, not files — never treat it as a note count.
+
 ---
 
 ## [2026-10-06] Delivery is verified before the inbox is consumed

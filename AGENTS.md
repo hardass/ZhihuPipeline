@@ -58,7 +58,13 @@ sudo -n "$QNAP_DOCKER" -H unix:///var/run/docker.sock logs --tail 200 zhihu-pipe
 - 代码仓库 `6a90e4b` 已推送并部署到 NAS：附件前缀方案回退，管道重新写入 `assets/<笔记标题>/`，`migrate_attachments.py`、`check-attachments`、节点 preflight 已删除。部署前逐一比对过 6 个源文件与 `d29109d` 的内容，NAS 上无本地漂移，可安全覆盖。
 - `zhihu-pipeline` 容器已重启（`docker restart`，非重建）：`running`、`restarts=0`、`oom=false`，容器内 `--help` 只剩 6 个子命令，证明进程加载的是回退后的代码。`git.sync_mode` 仍是 `git`，投递未受影响。
 - 实测磁盘：`/share/CACHEDEV3_DATA` 余 329GB（`mem_limit` 的顾虑是内存不是磁盘），NAS `free -m` 显示约 10GB 空闲 + 11GB cache。`notes` 4.3G（含 `.git` 2.6G）、`zhihu-vault` 808M、`node-data` 923M。
-- 尚未做：节点常驻（daemon 挂整库 `notes`）、管道 `livesync:` 配置与 `sync_mode` 翻转、故障演练、CouchDB 重新加锁、GitHub 停用。
+- **数据事故（2026-10-08 排查发现，必须优先处置）**：2026-10-07 23:36 那次"停止跟踪 `.obsidian` 插件文件"的提交 `8b246dd` 之后，Mac 的 vault 磁盘内容**等于 git 工作树**——实测 `git ls-files` 6774、磁盘 6777、未跟踪文件 **0 个**。也就是说所有从未被 git 提交的文件在同一时刻从 Mac 磁盘消失：全部插件的 `main.js`/`manifest.json`（含 LiveSync 与 dataview，Obsidian 里这些插件现在加载不了）、`personal assets/` 2381 个、`onenote/` 958 个、`assets/` 里 3410 个附件、`Jobs/` 67 个，共约 **5900 个文件**。它们**仍在 CouchDB 和其它设备上**，把 Mac 重新接入同步即可找回；**在找回之前绝不要在 Mac 上再跑任何 `git clean` / reset / 覆盖式检出**。
+- 已做的止血：从官方 release 取回 `obsidian-livesync` **1.0.35** 的 `main.js`/`manifest.json`/`styles.css` 放回 Mac 的插件目录（与节点 `1.0.35-cli` 同代，避免 compatibility paused）。**缺 `data.json`**（那份在 `8b246dd` 之前是被 git 跟踪的，但那是 1.0.21 时代的旧配置，不作为恢复来源）——需要用户在手机或 iPad（配置完好）上用 `Copy settings as a new Setup URI` 生成，Mac 端导入，然后让 Mac 把缺失文件拉回来。
+- 实测 CouchDB 现状（供对账）：`obsidian-vault` `doc_count=66598`，其中**文件文档 12631 个、分块文档 53967 个**（`h:+…` 键），删除记录另有约 3.3 万条；`doc_count` 不等于文件数，别拿它当笔记篇数。用户故意删掉的那篇与探针文档均返回 404，说明删除已传播、探针没有残留。
+- 实测 LiveSync 的键规则：**文档 `_id` 是小写化的 vault 相对路径，原始大小写保存在 `metadata.path` 里**（例：id `jobs/gemini gems/ai context.md` ↔ path `Jobs/Gemini Gems/AI context.md`）。QNAP 的 `/share/homes` 经实测**区分大小写**，所以节点写盘要用 `metadata.path`，不能拿 id 当路径，否则会造出大小写重复的目录树。
+- 管道投递已临时暂停：NAS `config.yaml` 的 `git.sync_mode` 就地改为 `none`（inode 未变），容器内 `status` 确认 `Publish Channel: none`、`Delivery Unconfirmed: 2`——暂停期间不会消费知乎收件箱，这是设计中的安全状态。
+- 节点忽略名单必须含 `/\.obsidian/`（任意深度）与 `\.DS_Store$`：这个库里有**嵌套的 Obsidian 子库**（`Jobs/.obsidian/`、`Travel/Japan202606/.obsidian/`、`Investiment/.obsidian/`），它们各带自己的插件与 `github-sync.log`；不过滤就会整批进库，而日志会每轮增长。
+- 尚未做：Mac 重新入列并把约 5900 个文件拉回（需用户在手机/iPad 上生成 Setup URI）、节点常驻（daemon 挂整库 `notes`）、管道 `livesync:` 配置与 `sync_mode` 从 `none` 翻到 `livesync`、故障演练、CouchDB 重新加锁、GitHub 停用与 `.git` 删除。
 
 ## NAS 运维陷阱（实测）
 
@@ -68,4 +74,5 @@ sudo -n "$QNAP_DOCKER" -H unix:///var/run/docker.sock logs --tail 200 zhihu-pipe
 - `docker exec` 转发 stdin 必须加 `-i`，否则需要口令的 CLI（如 livesync `setup`）会静默读到空输入。
 - NAS 上没有 `python3`、`comm`、`timeout`、`grep -P`（BusyBox 环境）；跨端脚本要用 POSIX 工具，或把逻辑放进容器内执行。
 - 校验 git 脏路径必须用 `git status --porcelain -z`：路径含空格时 git 一律加引号，`core.quotepath=off` 管不了这个，按行解析会误判成越界改动。
+- **摘除 git 跟踪 ≠ 删除文件，但紧随其后的检出/清理会。** `git rm --cached` 只动索引；可是文件一旦变成"未跟踪"，之后的 `git checkout .`、`git restore`、`git clean -fd` 就会把它们当作垃圾清掉。vault 这种仓库里，插件本体、`personal assets/`、`onenote/`、大量附件都只存在于 LiveSync 而不在 git 里，一旦误清就是几千个文件。摘除跟踪之后**立刻**用 `git status --porcelain -z --untracked-files=all` 确认未跟踪文件仍然在磁盘上，并且在此之前先做带日期的目录备份。
 - **节点上传之前快照必须自洽。** 手工拼出来的 `zhihu-vault` 有笔记引用了没被拷进去的附件目录，节点把坏笔记推上线、覆盖掉各设备本地的好版本，实测在 Mac 弹出 8 个冲突对话框、手机端出现 "This file has unresolved conflicts"。加白名单不能防这个（问题在内容不在路径），所以重建快照后必须先核对"笔记引用的附件目录都存在"再启动节点；重建一律用管道自己的输出目录，不要手拼。
