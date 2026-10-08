@@ -288,7 +288,15 @@ class PublishProber:
             except (ValueError, AttributeError) as exc:
                 raise PublishProbeError(f"_all_docs returned an unusable body: {exc}") from exc
             for row in rows:
-                if isinstance(row, dict) and "error" not in row and row.get("id"):
+                if not isinstance(row, dict) or "error" in row:
+                    continue
+                value = row.get("value") or {}
+                # A tombstone row still carries an id and no error, so it has to be
+                # excluded explicitly: a note the user deleted on another device
+                # must not be reported as delivered.
+                if value.get("deleted"):
+                    continue
+                if row.get("id"):
                     found.add(str(row["id"]))
         return found
 

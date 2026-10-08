@@ -73,6 +73,22 @@ def all_docs_rows(keys, present):
     return FakeResponse(200, {"total_rows": len(present), "offset": 0, "rows": rows})
 
 
+def test_a_tombstone_is_not_delivery():
+    """Deleted rows carry an id and no error; counting them would approve deletions."""
+    prober = build_prober(
+        lambda url, method, body=None: (
+            milestone({"n1": {"device_name": "zhihu-node", "last_connected": fresh_ms()}})
+            if MILESTONE_DOC in url
+            else FakeResponse(200, {"rows": [
+                {"id": "知乎收藏/a.md", "key": "知乎收藏/a.md",
+                 "value": {"rev": "3-def", "deleted": True}}
+            ]})
+        )
+    )
+    result = run(prober.verify(["知乎收藏/a.md"]))
+    assert not result.delivered and result.missing == ["知乎收藏/a.md"]
+
+
 
 def test_unconfigured_prober_fails_closed():
     prober = PublishProber(make_config(password=""))
