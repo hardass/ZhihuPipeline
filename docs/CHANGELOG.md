@@ -72,6 +72,32 @@ put the Mac back into the sync group and let it pull.
   original casing lives in `metadata.path`, and `doc_count` (66598) counts 53967 content
   chunks, not files — never treat it as a note count.
 
+## [2026-10-08] Loss assessment corrected: 38 files, not 5900
+
+The first estimate above was wrong and the corrected numbers matter for every later
+decision, so they are recorded here as measured.
+
+- Compared the live document set against the Mac disk case-folded: 12,631 file documents,
+  6,722 present, and of the 5,909 absent, **5,860 are stale duplicates** - the same content
+  under a path nobody uses any more (`assets/<title>/…` from before the 知乎附件 move,
+  `personal assets/assets/…` from files later relocated into `assets/`, and `xxx 1.md`
+  copies). Those moves were made in git/Finder, so LiveSync never saw them and the old
+  documents were never deleted.
+- Real gap: **38 content files** (4 Zhihu notes + 10 of their images, 12 `Jobs/`, 6
+  `OneNote/`, 3 `personal assets/`, `**While 的用法**.md`, `assets/仅一个文件，暴涨了.md`)
+  plus ~10 known junk documents and the one note the user deleted on purpose.
+- Every one of the 6,716 files the node could materialize is already on the Mac disk
+  (export-minus-disk gap = 0), so the export was never the recovery path for these.
+- Two CLI behaviours found the hard way: repeated `sync`+`mirror` rounds plateau at 6,716
+  because the CLI does not persist the whole changes feed ("Replication result received,
+  but not processed automatically in CLI mode" x1354), and `HEAD`/`GET` on a document id
+  is not a reliable existence probe here - use `POST /_all_docs` with exact keys instead.
+- Rejected as unsafe: pointing `daemon` at an empty directory. `daemon` propagates
+  deletions, and its index knows thousands of files, so it could push deletions for files
+  that merely are not in that directory. The bounded fetch instead copies node settings,
+  sets `syncOnlyRegEx` to the exact 49 target ids and runs `mirror` - the allow-list is
+  used here as a blast-radius limit for a one-off fetch, not as a delivery filter.
+
 ---
 
 ## [2026-10-06] Delivery is verified before the inbox is consumed
