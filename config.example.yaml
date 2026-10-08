@@ -56,7 +56,12 @@ livesync:
   timeout: 10.0                                       # Per-request HTTP timeout (seconds)
   verify_timeout_seconds: 90.0                        # How long to wait for the node to publish
   verify_poll_interval_seconds: 5.0
-  node_max_stale_minutes: 30.0                        # Older node heartbeat == dead channel
+  node_max_stale_minutes: 45.0                      # Older node heartbeat == dead channel.
+                                                      # Keep this well above the heartbeat
+                                                      # interval: an idle-but-healthy CLI
+                                                      # node was measured not refreshing for
+                                                      # ~23 minutes, so a tight limit raises
+                                                      # false alarms.
   use_path_obfuscation: false                         # Keep false: cursor-only proof never justifies deleting a source
 
 # Sync Settings
