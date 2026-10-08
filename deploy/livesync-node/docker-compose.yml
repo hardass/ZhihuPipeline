@@ -28,6 +28,14 @@ services:
     command:
       - |
         while true; do
+          # Guard first: publishing a snapshot with stale or missing attachment
+          # references overwrites healthy notes on every device. Skip the cycle and
+          # shout instead of doing that.
+          if ! sh /preflight/preflight.sh; then
+            echo "[livesync-node] cycle SKIPPED by preflight; fix the vault snapshot" >&2
+            sleep "${LIVESYNC_INTERVAL:-60}"
+            continue
+          fi
           echo "[livesync-node] $(date -u +%FT%TZ) mirror"
           node /app/dist/index.cjs /data \
             --settings /data/livesync-settings.json mirror /vault || \
@@ -44,6 +52,8 @@ services:
       - ${LIVESYNC_DATA_DIR:-./livesync-data}:/data
       # The Zhihu-only vault directory produced by the pipeline.
       - ${ZHIHU_VAULT_DIR:-/share/homes/hardass/zhihu-vault}:/vault:delegated
+      # Read-only preflight gate (see preflight.sh).
+      - ${PREFLIGHT_DIR:-.}:/preflight:ro
     mem_limit: 512m               # the NAS has ~1.5GB free and has OOM-killed containers before
     restart: unless-stopped
     logging:

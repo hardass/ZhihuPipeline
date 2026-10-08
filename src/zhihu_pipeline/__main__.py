@@ -159,6 +159,32 @@ def migrate_attachments_cmd(vault, do_apply, force):
         print("\n这是空跑结果。加 --apply 才会真正执行。")
 
 
+
+@cli.command("check-attachments")
+@click.option("--vault", default=None, help="Vault path; defaults to output.vault_path from config.yaml")
+def check_attachments_cmd(vault):
+    """
+    Exit non-zero unless every referenced attachment exists under the dedicated prefix.
+
+    Use this as a preflight before starting or refreshing a LiveSync node: a snapshot
+    that still points at old attachment paths would publish broken notes over good ones.
+    """
+    import sys
+    from zhihu_pipeline.migrate_attachments import audit_attachments
+
+    config = load_config()
+    vault_path = os.path.abspath(os.path.expanduser(vault)) if vault else config.output.vault_path
+    audit = audit_attachments(vault_path, config.output.collection_dir)
+    print(audit.summary())
+    for name, notes in list(audit.stale_refs.items())[:10]:
+        print(f"  [stale] assets/{name} 仍被 {len(notes)} 篇笔记引用，例如 {notes[0]}")
+    for name in audit.missing_dirs[:10]:
+        print(f"  [missing] assets/{name} 被引用但目录不存在")
+    if len(audit.stale_refs) > 10 or len(audit.missing_dirs) > 10:
+        print("  ...另有更多条目，用 migrate-attachments 查看完整列表")
+    sys.exit(0 if audit.ok else 1)
+
+
 @cli.command()
 def worker():
     """Run scheduled sync only; notification delivery remains via notify-gateway."""

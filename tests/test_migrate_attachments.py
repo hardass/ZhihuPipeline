@@ -183,3 +183,39 @@ def test_git_and_obsidian_directories_are_never_scanned(tmp_path):
 
     assert report.external_refs == {}
     assert report.moved == ["某笔记"]
+
+
+# ------------------------------------------------------------- node preflight
+
+
+def test_audit_passes_on_a_migrated_vault(tmp_path):
+    from zhihu_pipeline.migrate_attachments import audit_attachments
+
+    vault = build_vault(tmp_path)
+    migrate(vault, "知乎收藏", apply=True)
+
+    audit = audit_attachments(vault, "知乎收藏")
+    assert audit.ok
+    assert "通过" in audit.summary()
+
+
+def test_audit_catches_references_to_old_paths_that_still_exist(tmp_path):
+    """The exact failure that made the node publish broken notes."""
+    from zhihu_pipeline.migrate_attachments import audit_attachments
+
+    vault = build_vault(tmp_path)          # note references assets/某笔记/, dir present
+    audit = audit_attachments(vault, "知乎收藏")
+    assert not audit.ok
+    assert "某笔记" in audit.stale_refs
+    assert audit.stale_refs["某笔记"] == [os.path.join("知乎收藏", "我的收藏", "2026-01-01 测试笔记.md")]
+
+
+def test_audit_catches_missing_attachment_directories(tmp_path):
+    """A hand-made snapshot can reference attachments it never copied."""
+    from zhihu_pipeline.migrate_attachments import audit_attachments
+
+    vault = build_vault(tmp_path, asset_dirs=())   # note references a dir that is absent
+    audit = audit_attachments(vault, "知乎收藏")
+    assert not audit.ok
+    assert audit.missing_dirs == ["某笔记"]
+    assert audit.stale_refs == {}

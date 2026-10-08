@@ -69,6 +69,36 @@ docker logs -f zhihu-livesync-node                   # 每轮 mirror + sync 的�
 
 这里用的是 **cron 风格的 `mirror` + `sync` 循环**，不是 `daemon`。原因：`mirror` 不传播删除（磁盘上缺失的文件会被从库里恢复回来，真要删得显式用 `rm`），而 `daemon` 的 chokidar 会把 create/modify/**delete** 全部推给 CouchDB。在"节点只挂一个子树"的部分镜像拓扑下，前者误操作后果小得多。稳定跑满一周、且确认白名单无法被绕开后，再考虑切 `daemon --interval 60`。
 
+## 快照必须怎么建（血泪教训，2026-10-08）
+
+`zhihu-vault` 不能手工 `cp` 拼凑。真实事故：快照在 08:58 建立，而有一篇笔记是 08:20 由
+**旧代码**下载的，图片落在 `assets/<标题>/`；快照只拷了 `知乎附件/` 与 `知乎视频/`，于是那篇
+笔记在快照里引用了一个**不存在的目录**。节点把它推上库，覆盖了正常版本，Mac 弹出 8 个
+conflict 对话框。
+
+正确顺序，且每步都要看实际输出、不要假设成功：
+
+```bash
+# 1) 先确保正式目录已完成附件迁移（幂等，可反复跑）
+docker exec zhihu-pipeline python -m zhihu_pipeline migrate-attachments --apply
+# 2) 重建快照：正文真拷贝（会被打标签改写，不能硬链接），附件硬链接（只读不改）
+sudo rm -rf /share/homes/hardass/zhihu-vault/知乎收藏 /share/homes/hardass/zhihu-vault/assets/知乎附件
+sudo cp -a /share/homes/hardass/zhihu-pipeline/notes/知乎收藏 /share/homes/hardass/zhihu-vault/知乎收藏
+sudo cp -al /share/homes/hardass/zhihu-pipeline/notes/assets/知乎附件 /share/homes/hardass/zhihu-vault/assets/知乎附件
+# 3) 审计快照（退出码非 0 就别启动节点）
+docker run --rm -v /share/homes/hardass/zhihu-pipeline/src:/app/src \
+  -v /share/homes/hardass/zhihu-vault:/vault zhihu-pipeline:latest \
+  check-attachments --vault /vault
+# 4) 通过后再 mirror + sync
+```
+
+节点容器每次循环开头还会跑一次 `preflight.sh`（POSIX 版，容器内无需 Python）：发现旧路径引用或
+附件文件缺失就**跳过这一轮并报错**，不会把坏快照推上库。
+
+另外两个实测坑：镜像的 `ENTRYPOINT` 已经是 `entrypoint.sh`（内部会 `exec python -m zhihu_pipeline "$@"`），
+所以 `docker run` 时**只能传子命令**，再写 `python -m zhihu_pipeline` 会变成重复命令并静默失败；
+`docker exec` 则不受影响，要走 stdin 得加 `-i`。
+
 ## 与管道的接口
 
 `zhihu-pipeline` 不读这个容器，也不会写它。它只在 CouchDB 上做**只读**验证：

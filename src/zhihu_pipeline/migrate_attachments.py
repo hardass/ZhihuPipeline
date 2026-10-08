@@ -203,6 +203,47 @@ def find_external_references(vault_path: str, collection_dir: str, names) -> dic
     return found
 
 
+@dataclass
+class AttachmentAudit:
+    """Snapshot integrity report used to gate the LiveSync node."""
+
+    stale_refs: dict[str, list[str]] = field(default_factory=dict)
+    missing_dirs: list[str] = field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return not self.stale_refs and not self.missing_dirs
+
+    def summary(self) -> str:
+        if self.ok:
+            return "附件路径审计通过：没有笔记引用旧附件路径，也没有缺失的附件目录。"
+        return (
+            f"附件路径审计未通过：{len(self.stale_refs)} 个旧路径引用，"
+            f"{len(self.missing_dirs)} 个被引用但缺失的目录。"
+        )
+
+
+def audit_attachments(vault_path: str, collection_dir: str = "知乎收藏") -> AttachmentAudit:
+    """
+    Check that every attachment a note references exists under the dedicated prefix.
+
+    This exists because the Zhihu vault directory was once assembled by hand: notes
+    downloaded before the attachment migration referenced ``assets/<title>/`` that the
+    copy step did not bring along, and the LiveSync node then published notes whose
+    images pointed nowhere. A node must refuse to run against such a snapshot - it
+    would overwrite good remote notes with broken ones.
+    """
+    audit = AttachmentAudit()
+    by_dir, _notes = scan_links(vault_path, collection_dir)
+    assets_root = os.path.join(vault_path, "assets")
+    for name, notes in sorted(by_dir.items()):
+        if os.path.isdir(_safe_child(assets_root, name) or ""):
+            audit.stale_refs[name] = sorted(notes)
+        else:
+            audit.missing_dirs.append(name)
+    return audit
+
+
 def migrate(vault_path: str, collection_dir: str = "知乎收藏", apply: bool = False,
           force: bool = False) -> MigrationReport:
     """

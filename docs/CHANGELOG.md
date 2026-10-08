@@ -2,6 +2,22 @@
 
 本文件记录项目的重大变更、安全修复和架构调整，供后续维护者和 Agent 参考。
 
+## [2026-10-08] Node preflight: never publish an inconsistent snapshot
+
+A hand-assembled Zhihu vault snapshot referenced an attachment directory it never
+copied, and the LiveSync node published that broken note over the healthy remote
+version, producing conflict dialogs on the Mac.
+
+- Added `audit_attachments()` and the `check-attachments` command: exits non-zero
+  unless every referenced attachment exists under the dedicated prefix.
+- Added `deploy/livesync-node/preflight.sh` (POSIX, no Python needed) and wired it
+  into the node loop: a failing audit skips the cycle instead of publishing.
+- Documented the supported snapshot rebuild order and two operational traps: the
+  image `ENTRYPOINT` already runs `python -m zhihu_pipeline`, so `docker run` must
+  pass only the subcommand; and `docker exec` needs `-i` to forward stdin.
+
+---
+
 ## [2026-10-06] Delivery is verified before the inbox is consumed
 
 The `git.sync_mode: livesync` switch only suppressed the GitHub push and then reported
