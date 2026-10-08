@@ -42,8 +42,11 @@ sudo -n "$QNAP_DOCKER" -H unix:///var/run/docker.sock logs --tail 200 zhihu-pipe
 
 ## 当前已知运行状态（2026-10-07）
 
-- 投递通道：NAS `zhihu-pipeline` 容器 `running`、`restarts=0`，`git.sync_mode: "git"`，GitHub 投递已恢复正常。附件迁移已由 NAS 原子提交 `ff40e31` 推到 notes 仓库，Mac 已 fast-forward 拉取，手机渲染验证通过。
-- LiveSync 节点：镜像 `zhihu-livesync-node:1.0.35` 已构建；`/share/homes/hardass/zhihu-vault` 已建立（知乎专用，正文真拷贝、附件硬链接）；`livesync-settings.json` 已写入白名单 `^知乎收藏/|^assets/知乎视频/|^assets/知乎附件/` 与 `deviceAndVaultName=zhihu-node`；`mirror` 范围验证通过（3711 条，与磁盘双向差集 0，无私人路径、无 manifest.json）。
+- 投递通道：NAS `zhihu-pipeline` 容器 `running`、`restarts=0`，`git.sync_mode: "git"`，GitHub 投递已恢复正常。
+- LiveSync 节点：镜像 `zhihu-livesync-node:1.0.35` 已构建并可用；`livesync-settings.json` 已导入 Setup URI（`isConfigured=true`、`encrypt=true`）。**路径白名单已清空**（原因见下条）。节点尚未常驻化，目前只能手工 `mirror`/`sync`。
+- **附件专用前缀方案已作废（2026-10-08，用户决定）**：曾把 180 个知乎附件目录迁到 `assets/知乎附件/`（notes 仓库提交 `ff40e31`、`9c898c2`）以便 LiveSync 按路径过滤。但实测发现该库已有 **399 篇笔记被用户移出 `知乎收藏/`**（散在 `AI/Agent/`、`Life/`、`Business/` 等），任何以 collection 目录为界的方案都跟不上这种用法；而 LiveSync 的 `syncOnlyRegEx` 双向生效，不过滤只是让节点看不到范围约束，加过滤则会漏投被移走的笔记。因此**代码已回退到 `assets/<标题>/`，节点不再设路径过滤**。
+- **已迁移的数据暂不回退**：那 180 个目录当前自洽可用（笔记引用与文件位置一致，Mac 与手机图片均正常）。回退数据会在三台同步设备上再制造一轮 3400 文件改名，换不到任何功能修复。要回退需用户单独确认。
+- **真正待修的缺陷**：`images.py` 写的是深度依赖的相对链接 `../../assets/...`，笔记被移到一级目录（如 `Life/x.md`）时链接会跳出库根而失效（实测已有 2 处断链，移到二级目录的 66 处正常）。修法是把嵌入链接改成 Obsidian 可解析的库内路径，与目录前缀无关。
 - **未完成且需人工接手的第一件事**：CouchDB 目前处于 `locked:false`，且那次开关把 `accepted_nodes` 重置成只剩 MacBook 一个节点。恢复流程见 `deploy/livesync-node/README.md`「首次接入的顺序与两个实测坑」：先让其它设备各打开一次 Obsidian 重新入列，名单齐全后再加锁，最后验证锁着仍能同步。**不要在名单只有 1 个节点时加锁**，那会静默挡住仍在正常同步的设备。
 - **已决定：接受节点在 NAS 上维持整库副本。** `sync` 是整库复制，`syncOnlyRegEx` 只约束哪些*文件*参与同步，不约束复制范围，所以节点会持有约 4.3GB 的全库副本（且为加解密持有口令）。这不是需要防的风险：LiveSync 的 E2EE 针对的是不可信存储与传输环节（托管库、被截获的隧道、丢失的手机），而不是用户自己的 NAS；相反 NAS 上原本放着 5.1GB 明文整库加 2.6GB `.git`，暴露程度更高。因此不做 per-user 过滤，改为在管道 `vault_path` 切到 `zhihu-vault` 之后删除那份旧的明文整库目录。首次 `sync` 曾在 28 分钟后被人工中止，未向生产库写入任何文档（探针文档仍为 `not_found`），`node-data` 停在约 925MB 的半复制状态。
 - notify 网关已修好（2026-10-07）：NAS 配置里那把 40 位 api_key 是过期的，真 key 是 64 位，存放在本机 `~/vibe/notify-gateway/.api_key`（网关按 `Authorization: Bearer` / `X-API-Key` / `?key=` 比对，再用 Worker 里的 `TG_BOT_TOKEN` 转成 Telegram 消息）。已就地写回 NAS 配置（保留 inode）并用管道自身的 Notifier 实测送达。GB10 打标端点仍返回 530，每轮固定若干篇 `tagging failed`，按用户要求不在本链路内处理。
@@ -54,5 +57,8 @@ sudo -n "$QNAP_DOCKER" -H unix:///var/run/docker.sock logs --tail 200 zhihu-pipe
 
 - **单文件 bind mount 只认 inode。** 用编辑器保存或 `sed -i` 改 `config.yaml` 会替换 inode，容器内读到的仍是旧内容，必须重启容器才会重新解析绑定路径。原地写入请用 `cat new > old`，或改完固定重启一次。
 - 判断容器是否真的加载了新代码：`src` 是 live mount，但 Python 进程只在启动时导入，**改完源码同样需要重启容器**；`docker exec ... python -m zhihu_pipeline status` 可以另起进程验证新代码。
+- 镜像的 `ENTRYPOINT` 已经是 `python -m zhihu_pipeline`，`docker run` 只传子命令。写成 `docker run ... python -m zhihu_pipeline <cmd>` 会执行 `python` 这个不存在的子命令，而 Click 的错误照样打到 stdout/stderr，容易误读成"没有输出=成功"；看原始输出，不要只看退出码。
+- `docker exec` 转发 stdin 必须加 `-i`，否则需要口令的 CLI（如 livesync `setup`）会静默读到空输入。
 - NAS 上没有 `python3`、`comm`、`timeout`、`grep -P`（BusyBox 环境）；跨端脚本要用 POSIX 工具，或把逻辑放进容器内执行。
 - 校验 git 脏路径必须用 `git status --porcelain -z`：路径含空格时 git 一律加引号，`core.quotepath=off` 管不了这个，按行解析会误判成越界改动。
+- **节点上传之前快照必须自洽。** 手工拼出来的 `zhihu-vault` 有笔记引用了没被拷进去的附件目录，节点把坏笔记推上线、覆盖掉各设备本地的好版本，实测在 Mac 弹出 8 个冲突对话框、手机端出现 "This file has unresolved conflicts"。加白名单不能防这个（问题在内容不在路径），所以重建快照后必须先核对"笔记引用的附件目录都存在"再启动节点；重建一律用管道自己的输出目录，不要手拼。

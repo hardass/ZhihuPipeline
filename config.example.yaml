@@ -49,7 +49,10 @@ livesync:
   db_name: "obsidian-vault"
   username: "obsidian_admin"                          # Or LIVESYNC_COUCHDB_USER
   password: ""                                        # Leave empty; set LIVESYNC_COUCHDB_PASSWORD
-  node_name: ""                                       # device_name the node writes in the milestone doc
+  node_name: ""                                       # device_name the node writes in the milestone doc.
+                                                      # For a CLI node this is auto-generated, NOT
+                                                      # deviceAndVaultName: measured as
+                                                      # headless-vault-<hash>. Read it with remote-status.
   timeout: 10.0                                       # Per-request HTTP timeout (seconds)
   verify_timeout_seconds: 90.0                        # How long to wait for the node to publish
   verify_poll_interval_seconds: 5.0

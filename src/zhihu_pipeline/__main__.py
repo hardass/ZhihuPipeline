@@ -122,69 +122,6 @@ def bot():
         loop.close()
 
 
-@cli.command("migrate-attachments")
-@click.option("--vault", default=None, help="Vault path; defaults to output.vault_path from config.yaml")
-@click.option("--apply", "do_apply", is_flag=True, help="Actually move directories and rewrite links (default: dry run)")
-@click.option("--force", is_flag=True, help="Also move directories that notes outside the collection reference (breaks those links)")
-def migrate_attachments_cmd(vault, do_apply, force):
-    """
-    Move Zhihu image attachments from assets/<note title>/ to assets/知乎附件/.
-
-    Needed so a Self-hosted LiveSync node can be allow-listed by path without
-    either dropping Zhihu images or pulling unrelated private attachments onto
-    the NAS. Dry run by default; re-running after a migration is a no-op.
-    """
-    from zhihu_pipeline.images import ZHIHU_ATTACHMENT_ROOT
-    from zhihu_pipeline.migrate_attachments import migrate
-
-    config = load_config()
-    vault_path = os.path.abspath(os.path.expanduser(vault)) if vault else config.output.vault_path
-    logger.info(f"Migration target vault: {vault_path}")
-    report = migrate(vault_path, config.output.collection_dir, apply=do_apply, force=force)
-
-    print("\n" + report.summary())
-    def _show(label, items, template):
-        for name in items[:20]:
-            print(f"  {label} {template.format(name=name)}")
-        if len(items) > 20:
-            print(f"  {label} ...另有 {len(items) - 20} 项")
-    _show("[move]", report.moved, "assets/{name} -> " + ZHIHU_ATTACHMENT_ROOT + "/{name}")
-    _show("[conflict]", report.conflicts, "assets/{name} 目标已存在，未移动")
-    _show("[missing]", report.missing, "assets/{name} 被引用但磁盘上不存在")
-    for name in sorted(report.external_refs)[:20]:
-        holders = report.external_refs[name]
-        print(f"  [held-back] assets/{name} 同时被 {len(holders)} 篇 collection 外笔记引用，例如 {holders[0]}")
-    _show("[rewrite]", report.rewritten_notes, "{name}")
-    if not do_apply and (report.moved or report.rewritten_notes):
-        print("\n这是空跑结果。加 --apply 才会真正执行。")
-
-
-
-@cli.command("check-attachments")
-@click.option("--vault", default=None, help="Vault path; defaults to output.vault_path from config.yaml")
-def check_attachments_cmd(vault):
-    """
-    Exit non-zero unless every referenced attachment exists under the dedicated prefix.
-
-    Use this as a preflight before starting or refreshing a LiveSync node: a snapshot
-    that still points at old attachment paths would publish broken notes over good ones.
-    """
-    import sys
-    from zhihu_pipeline.migrate_attachments import audit_attachments
-
-    config = load_config()
-    vault_path = os.path.abspath(os.path.expanduser(vault)) if vault else config.output.vault_path
-    audit = audit_attachments(vault_path, config.output.collection_dir)
-    print(audit.summary())
-    for name, notes in list(audit.stale_refs.items())[:10]:
-        print(f"  [stale] assets/{name} 仍被 {len(notes)} 篇笔记引用，例如 {notes[0]}")
-    for name in audit.missing_dirs[:10]:
-        print(f"  [missing] assets/{name} 被引用但目录不存在")
-    if len(audit.stale_refs) > 10 or len(audit.missing_dirs) > 10:
-        print("  ...另有更多条目，用 migrate-attachments 查看完整列表")
-    sys.exit(0 if audit.ok else 1)
-
-
 @cli.command()
 def worker():
     """Run scheduled sync only; notification delivery remains via notify-gateway."""

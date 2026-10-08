@@ -2,19 +2,25 @@
 
 本文件记录项目的重大变更、安全修复和架构调整，供后续维护者和 Agent 参考。
 
-## [2026-10-08] Node preflight: never publish an inconsistent snapshot
+## [2026-10-08] Attachment prefix reverted: notes get moved, folders cannot gate them
 
-A hand-assembled Zhihu vault snapshot referenced an attachment directory it never
-copied, and the LiveSync node published that broken note over the healthy remote
-version, producing conflict dialogs on the Mac.
+The dedicated `assets/知乎附件/` prefix (and its migration tool, `check-attachments`
+audit and node preflight) was removed the same day it landed.
 
-- Added `audit_attachments()` and the `check-attachments` command: exits non-zero
-  unless every referenced attachment exists under the dedicated prefix.
-- Added `deploy/livesync-node/preflight.sh` (POSIX, no Python needed) and wired it
-  into the node loop: a failing audit skips the cycle instead of publishing.
-- Documented the supported snapshot rebuild order and two operational traps: the
-  image `ENTRYPOINT` already runs `python -m zhihu_pipeline`, so `docker run` must
-  pass only the subcommand; and `docker exec` needs `-i` to forward stdin.
+- Rationale: this vault already contains 399 notes the user moved out of the
+  collection directory into curated folders. A prefix scoped to where the pipeline
+  drops files cannot follow notes the user relocates, and LiveSync's allow-list is a
+  path regex applied in both directions - so filtering by prefix would silently skip
+  relocated notes while not filtering is the simpler, honest behaviour.
+- `images.py` writes to `assets/<note title>/` again (path output verified byte-for-byte
+  identical to the pre-change version, now via `attachment_dir`/`attachment_link`).
+- The node runs without `syncOnlyRegEx`; it still ignores `.git`, `.obsidian` and
+  `manifest.json`.
+- Already-migrated directories were deliberately left in place: they are internally
+  consistent and rendering correctly on every device, and reverting them would churn
+  ~3400 renames across three syncing clients for no functional gain.
+- Follow-up defect recorded in AGENTS.md: `../../assets/...` links are depth-dependent
+  and break when a note moves to a one-level folder; the fix is vault-resolved embeds.
 
 ---
 

@@ -29,17 +29,20 @@
   "isConfigured": true,
 
   "_safety": [
-    "syncOnlyRegEx is the allow-list that keeps this node from seeing anything but",
-    "the Zhihu subtree. Without it the node would also mirror private notes and,",
-    "worse, treat their absence on the NAS as local deletions.",
+    "As of 2026-10-08 this node runs WITHOUT an allow-list. Path prefixes cannot",
+    "follow notes the user moves out of 知乎收藏/ into their own folders (399 of",
+    "them), and syncOnlyRegEx applies in BOTH directions, so a prefix would simply",
+    "start dropping moved notes. See README '不设路径过滤'.",
+    "Consequence: whatever directory you mount is what gets mirrored - decide the",
+    "mount deliberately, and never point it at a tree containing private notes.",
+    "The ignore-list below is what keeps git/plumbing and pipeline state out.",
     "Older builds spelled the device name key differently; verify with",
     "  livesync-cli /data --settings ... remote-status   and then",
     "  livesync-cli /data --settings ... unlock-remote",
     "if the database reports itself locked by a previous session.",
     "trashInsteadDelete is NOT a safety feature any more (legacy key); the real",
-    "guards are the allow-list below plus the cron-style mirror loop."
+    "guard is the cron-style mirror loop, which does not propagate deletions."
   ],
-  "syncOnlyRegEx": "^知乎收藏/|^assets/知乎视频/|^assets/知乎附件/",
   "syncIgnoreRegEx": "/\\.git/|/\\.pipeline/|/\\.obsidian/|/manifest\\.json$|^\\.livesync/",
   "suspendFileWatching": false,
   "maxMTimeForReflectEvents": 0,

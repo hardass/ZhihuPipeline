@@ -97,6 +97,14 @@ GitHub 角色（**已定，2026-10-06**）：链路验收通过后**彻底停用
 （正文真拷贝 + 图片硬链接快照，df 用量不变）。
 **待办**：Mac 端退出 Obsidian → git pull → 重开 Obsidian 让 LiveSync 一次性追平。
 
+> **2026-10-08 更正**：这一步连同它的白名单方案已**作废**（用户决定「全部回退，不要前缀」）。
+> 该库已有 399 篇笔记被移出 `知乎收藏/`，按投放位置划定的前缀跟不上移动，而 `syncOnlyRegEx`
+> 双向生效，加了就会漏投。代码已回退到 `assets/<标题>/`，节点不再设路径过滤。
+> **已迁移的 180 个目录暂不回退**：回退会在三台同步设备上产生约 3400 次重命名，属高风险churn，
+> 需单独确认后再做（回滚点：notes 仓库 `ff40e31`、`9c898c2`；快照 `backups/pre-attachm-20261007-080102`）。
+> 真正的缺陷是 `../../assets/...` 这种依赖笔记深度的相对链接（实测深度 1 的笔记有 2 条失效），
+> 修法是把嵌入链接改成库内绝对路径，而不是再加一层目录。
+
 
 - **2.1 备份**（先备份再改，任何一步出问题都能回）：
   - CouchDB：`obsidian-vault` 4.1GB。停写窗口内用 `curl` 触发 `_compact` 前，先整目录 `cp -a /share/homes/hardass/obsidian-livesync/couchdb-data` 到带日期的备份目录（NAS 已有 `backups/` 习惯）。
@@ -110,6 +118,10 @@ GitHub 角色（**已定，2026-10-06**）：链路验收通过后**彻底停用
 ### 阶段 3 · 部署 headless 节点（进行中，2026-10-07）
 
 **已完成并实测**：CLI 镜像 `zhihu-livesync-node:1.0.35` 构建成功（269MB，官方 `src/apps/cli/Dockerfile`）。Setup URI + 口令导入成功（`isConfigured=true`、`encrypt=true`、profile 活动指向 `obsidian-sync.perilcrosser.com/obsidian-vault`）。白名单已写入：`^知乎收藏/|^assets/知乎视频/|^assets/知乎附件/`，忽略 `/.git/`、`/.obsidian/`、`/.pipeline/`、`manifest.json`，`deviceAndVaultName=zhihu-node`。知乎专用目录 `/share/homes/hardass/zhihu-vault` 已建（正文真拷贝 291 篇、附件与视频硬链接、`df` 净增≈0、`assets/` 顶层只有 2 项）。`mirror` 范围验证通过：**本地库 3711 条 = 291 正文 + 3417 附件 + 2 视频，与磁盘双向差集为 0，私人路径 0、manifest 0**。
+
+> **2026-10-08 更正两处**：（1）白名单已清空，理由见阶段 2 的更正块；（2）节点在 CouchDB 里的真实
+> key 是 CLI 生成的 `headless-vault-547ad80b1bc0fb6f`，不是 `zhihu-node`——`deviceAndVaultName`
+> 对 CLI 节点不起作用，管道的 `livesync.node_name` 必须填前者，否则心跳检查永远判为"节点不新鲜"。
 
 **方案调整**：原计划的独立 canary 库被换成**单文档定向探针**（`知乎收藏/_node_probe.md`，带唯一标记串）。原因：独立库测不到真正的风险——CLI 写入的文档能否被插件端解密；而正式库里知乎文档已存在（Mac 自己推的），所以探针必须用一个**库里尚不存在的新文档 ID**，失败时可随手删除、不影响既有数据。实测锁库期间探针被正确拒绝（远端 `not_found`），说明未接受节点无法污染库。
 

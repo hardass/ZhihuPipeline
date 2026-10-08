@@ -558,11 +558,7 @@ class SyncEngine:
                 # Notes and downloaded Zhihu videos are both pipeline-owned.
                 # Keep the scope explicit so private notes and .obsidian data
                 # in the shared vault can never be staged accidentally.
-                include_paths=[
-                    self.config.output.collection_dir,
-                    "assets/知乎视频",
-                    "assets/知乎附件",
-                ],
+                include_paths=[self.config.output.collection_dir, "assets/知乎视频"],
             )
             if pushed:
                 confirmed.update(self._awaiting_delivery.keys())

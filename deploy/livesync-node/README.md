@@ -44,7 +44,7 @@ docker run --rm -v "$PWD/livesync-data:/data" \
 | 1 | 往 vault 写一个测试文件 | 60 秒内 canary 库 `_all_docs` 命中该文档 |
 | 2 | 跨版本共存 | 升级后的 Mac 与该节点双向各写一次，两边都不出现 paused-for-review、不产 conflict |
 | 3 | 否定测试 | 节点启动前后 `doc_count` 与 key 集合**没有任何删除** |
-| 4 | 范围测试 | `.git`、`.pipeline/manifest.json`、非知乎目录都没有进入库；库里只有 `^知乎收藏/` 与 `^assets/知乎视频/` |
+| 4 | 范围测试 | `.git`、`.pipeline/manifest.json` 都没有进入库（靠 `syncIgnoreRegEx`）；库里的文档 key 与挂载目录内容一一对应，不含目录外的路径 |
 | 5 | 边界测试 | 一个 40–50MB 视频能进库（CouchDB `max_document_size=50000000`） |
 
 全部通过后才把 `couchDB_DBNAME` 改回 `obsidian-vault`，并在 Mac 的 Obsidian 里接受新节点（`accepted_nodes` 增加 `zhihu-node`）。
@@ -53,7 +53,7 @@ docker run --rm -v "$PWD/livesync-data:/data" \
 
 这两条都是真跑出来的，不是推测：
 
-1. **白名单必须含 `^assets/知乎附件/`。** 知乎图片过去落在 `assets/<笔记标题>/`，那个命名空间里混着私人笔记的附件（实测 NAS 上 579 个附件目录里只有 180 个属于知乎）。LiveSync 的 `syncOnlyRegEx` / `syncIgnoreRegEx` 是**双向**生效的，没有"只推不拉"的表达方式，所以前缀必须干净：先跑 `python -m zhihu_pipeline migrate-attachments`（默认空跑）把知乎附件收敛到 `assets/知乎附件/`，再让节点接入。
+1. **附件命名空间是混用的，这一点别再试图用路径前缀解决。** 知乎图片落在 `assets/<笔记标题>/`，与私人笔记的附件同层（实测 NAS 上 579 个附件目录里只有 180 个属于知乎）。曾为此把知乎附件收敛到 `assets/知乎附件/` 并打算用 `syncOnlyRegEx` 白名单圈定范围；2026-10-08 已作废，原因见下面「不设路径过滤」。现在的做法是不过滤路径，改为**由挂载目录决定节点能看见什么**。
 2. **锁库（Lock Server）开关会把 `accepted_nodes` 重置。** 实测关掉锁之后，原本 3 个已接受节点只剩 1 个。因此**立刻重新加锁会把那两台还没重新注册的设备静默挡在门外**——正是本次要消灭的故障类型。正确顺序：解锁 → 新节点完成一次同步并注册 → 让其它已有设备各打开一次 Obsidian 重新入列 → 确认名单齐全 → 再恢复锁 → 验证锁着仍能同步。
 3. **CLI 非交互时遇到 `locked` 会自动选"取消"**，不会写入任何东西（实测探针文档仍是 `not_found`）。这是安全行为，但也意味着它不会替你完成接受流程。
 4. 首次 `sync` 会把远端全部文档元数据拉进节点本地库（实测远端 66k+ 文档时明显耗时），期间 `node-data` 会增大，属正常。
@@ -69,35 +69,17 @@ docker logs -f zhihu-livesync-node                   # 每轮 mirror + sync 的�
 
 这里用的是 **cron 风格的 `mirror` + `sync` 循环**，不是 `daemon`。原因：`mirror` 不传播删除（磁盘上缺失的文件会被从库里恢复回来，真要删得显式用 `rm`），而 `daemon` 的 chokidar 会把 create/modify/**delete** 全部推给 CouchDB。在"节点只挂一个子树"的部分镜像拓扑下，前者误操作后果小得多。稳定跑满一周、且确认白名单无法被绕开后，再考虑切 `daemon --interval 60`。
 
-## 快照必须怎么建（血泪教训，2026-10-08）
+## 不设路径过滤（2026-10-08 决定）
 
-`zhihu-vault` 不能手工 `cp` 拼凑。真实事故：快照在 08:58 建立，而有一篇笔记是 08:20 由
-**旧代码**下载的，图片落在 `assets/<标题>/`；快照只拷了 `知乎附件/` 与 `知乎视频/`，于是那篇
-笔记在快照里引用了一个**不存在的目录**。节点把它推上库，覆盖了正常版本，Mac 弹出 8 个
-conflict 对话框。
+本节点**不使用** `syncOnlyRegEx`。理由：这个知识库里已有 399 篇笔记被用户从
+`知乎收藏/` 移到自己的分类目录（`AI/Agent/`、`Life/`、`Business/` 等），任何按
+"管道投放位置"划定的前缀都跟不上这种移动；而 LiveSync 的白名单是**双向生效**的路径
+正则，加了过滤就会漏投被移走的笔记，不加才是诚实的行为。仍然保留 `syncIgnoreRegEx`
+排除 `.git`、`.obsidian`、`manifest.json`——这三类是纯粹的噪声与状态文件。
 
-正确顺序，且每步都要看实际输出、不要假设成功：
-
-```bash
-# 1) 先确保正式目录已完成附件迁移（幂等，可反复跑）
-docker exec zhihu-pipeline python -m zhihu_pipeline migrate-attachments --apply
-# 2) 重建快照：正文真拷贝（会被打标签改写，不能硬链接），附件硬链接（只读不改）
-sudo rm -rf /share/homes/hardass/zhihu-vault/知乎收藏 /share/homes/hardass/zhihu-vault/assets/知乎附件
-sudo cp -a /share/homes/hardass/zhihu-pipeline/notes/知乎收藏 /share/homes/hardass/zhihu-vault/知乎收藏
-sudo cp -al /share/homes/hardass/zhihu-pipeline/notes/assets/知乎附件 /share/homes/hardass/zhihu-vault/assets/知乎附件
-# 3) 审计快照（退出码非 0 就别启动节点）
-docker run --rm -v /share/homes/hardass/zhihu-pipeline/src:/app/src \
-  -v /share/homes/hardass/zhihu-vault:/vault zhihu-pipeline:latest \
-  check-attachments --vault /vault
-# 4) 通过后再 mirror + sync
-```
-
-节点容器每次循环开头还会跑一次 `preflight.sh`（POSIX 版，容器内无需 Python）：发现旧路径引用或
-附件文件缺失就**跳过这一轮并报错**，不会把坏快照推上库。
-
-另外两个实测坑：镜像的 `ENTRYPOINT` 已经是 `entrypoint.sh`（内部会 `exec python -m zhihu_pipeline "$@"`），
-所以 `docker run` 时**只能传子命令**，再写 `python -m zhihu_pipeline` 会变成重复命令并静默失败；
-`docker exec` 则不受影响，要走 stdin 得加 `-i`。
+由此带来的约束：节点看到的目录里有什么，就会同步什么。所以**给节点挂哪个目录必须想清楚**：
+挂整库目录就会把整库（含私人笔记）纳入复制；挂只含知乎内容的目录，则被移出的笔记不在其中。
+这个取舍尚未最终定，接入正式常驻前要先确认。
 
 ## 与管道的接口
 

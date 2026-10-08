@@ -8,30 +8,33 @@ from loguru import logger
 # Regex to find markdown images: ![alt](url)
 IMAGE_REGEX = re.compile(r'!\[(.*?)\]\((https?://[^\s)]+)\)')
 
-# Every attachment this pipeline owns lives under one path prefix.
+# Attachments live next to every other vault attachment: assets/<note title>/.
 #
-# Zhihu images used to land in `assets/<note title>/`, which shares its namespace
-# with attachments of private notes in the same vault. A Self-hosted LiveSync node
-# can only be restricted by path, and its allow-list applies in both directions,
-# so `^assets/` would either skip every Zhihu image or drag unrelated private
-# attachments onto the NAS. Keeping pipeline output under a dedicated prefix is
-# what makes the delivery whitelist tight.
-ZHIHU_ATTACHMENT_ROOT = "assets/知乎附件"
+# A dedicated prefix (assets/知乎附件/) was tried and abandoned: Self-hosted
+# LiveSync's allow-list is a path regex applied in both directions, so a prefix
+# only helps if notes stay where the pipeline put them - and in this vault 399
+# notes have been moved into user-curated folders, which a collection-scoped
+# prefix cannot follow. The real defect is the depth-dependent relative link
+# below (`../../assets/...` breaks when a note moves to a shallower folder);
+# fixing that means vault-resolved embeds, not another folder.
+ASSETS_ROOT = "assets"
 
 def attachment_dir(vault_path: str, note_name: str) -> str:
     """Absolute directory where a note's images belong."""
-    return os.path.join(vault_path, *ZHIHU_ATTACHMENT_ROOT.split("/"), note_name)
+    return os.path.join(vault_path, ASSETS_ROOT, note_name)
 
 def attachment_link(note_name: str, filename: str) -> str:
     """
     Markdown link relative to a note stored at {collection_dir}/{collection}/{note}.md.
 
-    Obsidian only needs spaces encoded; Chinese characters and '+' stay literal so
-    existing files keep resolving.
+    Obsidian only requires space characters to be encoded as %20 in Markdown links.
+    Other characters like '+' and Chinese characters stay literal, otherwise the
+    resolver cannot find the file on disk.
+
+    NOTE: this assumes the note sits two levels below the vault root. Moving a
+    note to a one-level folder breaks it - see the comment above.
     """
-    encoded_note_name = note_name.replace(" ", "%20")
-    encoded_filename = filename.replace(" ", "%20")
-    return f"../../{ZHIHU_ATTACHMENT_ROOT}/{encoded_note_name}/{encoded_filename}"
+    return f"../../{ASSETS_ROOT}/{note_name.replace(' ', '%20')}/{filename.replace(' ', '%20')}"
 
 def get_high_res_url(url: str) -> str:
     """
@@ -100,7 +103,7 @@ async def download_images(markdown_text: str, note_name: str, output_dir: str) -
     if not zhihu_images:
         return markdown_text
 
-    # Set up assets directory: {vault}/assets/知乎附件/{note_name}/
+    # Set up assets directory: {vault}/assets/{note_name}/
     assets_dir = attachment_dir(output_dir, note_name)
     os.makedirs(assets_dir, exist_ok=True)
     logger.info(f"Assets directory prepared: {assets_dir}")
