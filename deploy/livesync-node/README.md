@@ -8,7 +8,7 @@
    旧版本无法解除由新版本触发的 "Synchronisation paused for compatibility review"，会把 Mac↔手机这条活路也停掉。
 2. `.obsidian/plugins/**/main.js`、`data.json` 已从 vault 的 git 跟踪中摘除（`git rm --cached` + `.gitignore`）。否则升级会被 `git pull` 打回旧版。
 3. 已对 `couchdb-data` 与 vault 做过带日期的备份。
-4. 投递目录是**知乎专用**目录（默认 `/share/homes/hardass/zhihu-vault`），里面不得有 `.git`、私人笔记或整库副本。
+4. 投递目录就是管道写入的那个**整库目录**（默认 `/share/homes/hardass/zhihu-pipeline/notes`），不是知乎专用子树；理由见下面「节点拓扑（2026-10-08 定稿）」。
 
 ## 建镜像与初始化
 
@@ -47,7 +47,7 @@ docker run --rm -v "$PWD/livesync-data:/data" \
 | 4 | 范围测试 | `.git`、`.pipeline/manifest.json` 都没有进入库（靠 `syncIgnoreRegEx`）；库里的文档 key 与挂载目录内容一一对应，不含目录外的路径 |
 | 5 | 边界测试 | 一个 40–50MB 视频能进库（CouchDB `max_document_size=50000000`） |
 
-全部通过后才把 `couchDB_DBNAME` 改回 `obsidian-vault`，并在 Mac 的 Obsidian 里接受新节点（`accepted_nodes` 增加 `zhihu-node`）。
+全部通过后才把 `couchDB_DBNAME` 改回 `obsidian-vault`，并在 Mac 的 Obsidian 里接受新节点（`accepted_nodes` 增加那个 `headless-vault-<hash>` key）。
 
 ## 首次接入的顺序与两个实测坑（2026-10-07）
 
@@ -64,33 +64,35 @@ docker run --rm -v "$PWD/livesync-data:/data" \
 ```bash
 docker compose -f docker-compose.yml config          # 先看渲染结果
 docker compose -f docker-compose.yml up -d
-docker logs -f zhihu-livesync-node                   # 每轮 mirror + sync 的退出码
+docker logs -f zhihu-livesync-node                   # daemon 的扫描与变更流
 ```
 
-这里用的是 **cron 风格的 `mirror` + `sync` 循环**，不是 `daemon`。原因：`mirror` 不传播删除（磁盘上缺失的文件会被从库里恢复回来，真要删得显式用 `rm`），而 `daemon` 的 chokidar 会把 create/modify/**delete** 全部推给 CouchDB。在"节点只挂一个子树"的部分镜像拓扑下，前者误操作后果小得多。稳定跑满一周、且确认白名单无法被绕开后，再考虑切 `daemon --interval 60`。
+这里用的是 **`daemon`**：先做一次 mirror 扫描，然后按 CouchDB 的变更流（`_changes`）持续双向同步，并且**会传播删除**。这是刻意选的：用户在手机上故意删掉的笔记，绝不能在 NAS 上留着旧副本再推回所有设备——那正是之前 cron 风格 `mirror` 循环的行为（`mirror` 不传播删除，磁盘上缺的文件还会被从库里恢复回来）。
 
-## 不设路径过滤（2026-10-08 决定）
+代价要说清楚：NAS 侧缺文件同样会被当成删除。所以首次启动必须让 daemon 自己把整库补齐之后再改配置，不要在 `notes` 目录被 `git clean` 过、或管道正在重写附件的当口启动。`LIVESYNC_INTERVAL` 留空即用变更流；如果变更流在隧道后面卡住，再设成秒数退化为轮询。
 
-本节点**不使用** `syncOnlyRegEx`。理由：这个知识库里已有 399 篇笔记被用户从
-`知乎收藏/` 移到自己的分类目录（`AI/Agent/`、`Life/`、`Business/` 等），任何按
-"管道投放位置"划定的前缀都跟不上这种移动；而 LiveSync 的白名单是**双向生效**的路径
-正则，加了过滤就会漏投被移走的笔记，不加才是诚实的行为。仍然保留 `syncIgnoreRegEx`
-排除 `.git`、`.obsidian`、`manifest.json`——这三类是纯粹的噪声与状态文件。
+## 节点拓扑（2026-10-08 定稿）
 
-由此带来的约束：节点看到的目录里有什么，就会同步什么。所以**给节点挂哪个目录必须想清楚**：
-挂整库目录就会把整库（含私人笔记）纳入复制；挂只含知乎内容的目录，则被移出的笔记不在其中。
-这个取舍尚未最终定，接入正式常驻前要先确认。
+**节点挂载整库目录，不设 `syncOnlyRegEx`。** 理由：
+
+1. 这个库里已有 399 篇笔记被用户从 `知乎收藏/` 移到自己的分类目录（`AI/Agent/`、`Life/`、`Business/` 等），并且有人**故意删掉**过笔记。LiveSync 的白名单是**双向生效**的路径正则，任何按"管道投放位置"划定的前缀都会把移动/删除挡在节点的视野之外，让 NAS 留下旧副本再推回去。
+2. 前缀也解决不了真正的问题：附件链接的缺陷在于 `../../assets/...` 依赖笔记深度，跟目录叫什么名字无关。
+3. 因此**由挂载目录决定节点能看见什么**，这是唯一诚实的做法。
+
+由此带来的约束与已经接受的代价：节点挂哪个目录，那个目录就会成为整库的可读写副本。NAS 上因此保留一份含私人笔记的明文整库（约 4.3GB）——这与 `AGENTS.md` 的决定一致：LiveSync 的 E2EE 针对的是不可信存储与传输环节，不是用户自己的 NAS；NAS 上原本就有 5.1GB 明文整库加 2.6GB `.git`，暴露程度更高。GitHub 通道验证停用之后，删除 `.git`（回收 2.6GB）与那份 808MB 的 `zhihu-vault` 试验目录。
+
+`syncIgnoreRegEx` 仍然保留，用来排除 `.git`、`.obsidian`、`.pipeline`、`manifest.json` 这几类纯噪声与状态文件——它们是**忽略名单**，不是白名单，不会把私人笔记或被移走的笔记排除在同步之外。
 
 ## 与管道的接口
 
 `zhihu-pipeline` 不读这个容器，也不会写它。它只在 CouchDB 上做**只读**验证：
 
 - 逐文档存在性（`HEAD /obsidian-vault/<知乎收藏/….md>`）；
-- `_local/obsydian_livesync_milestone` 里 `zhihu-node` 的心跳新鲜度。
+- `_local/obsydian_livesync_milestone` 里节点的心跳新鲜度。节点在 CouchDB 里的真实 key 是 CLI 自动生成的 `headless-vault-<hash>`，**不是** `deviceAndVaultName`（实测为 `headless-vault-547ad80b1bc0fb6f`）；配错会让心跳永远判为"节点不新鲜"。
 
 两者都通过才认为"已发布"，才会从知乎收藏夹移除条目。节点停掉时，管道会告警并且不再消费收件箱——这正是这次事故缺的那个反馈回路。
 
-配置项见 `../../config.example.yaml` 的 `livesync:` 段；凭据只走环境变量 `LIVESYNC_COUCHDB_URL/DB_NAME/USER/PASSWORD/NODE_NAME`。
+配置项见 `../../config.example.yaml` 的 `livesync:` 段；凭据可走 `LIVESYNC_COUCHDB_URL/DB_NAME/USER/PASSWORD/NODE_NAME`，也可以直接写在 NAS 的 `config.yaml` 里（那台机器上已经存着 GitHub token，密级没有差别）。
 
 ## 回滚
 
@@ -98,7 +100,8 @@ docker logs -f zhihu-livesync-node                   # 每轮 mirror + sync 的�
 
 ## 不要做的事
 
-- 不要把 vault 指成整库目录，也不要让它看见 `.git`。
+- 首次 daemon 追平之前，不要在其它设备上编辑：整库首次对账最容易产生命令副本。
+- 不要在 `--settings` 之外再维护第二份配置：NAS 上的实际文件是 `livesync-node/node-data/livesync-settings.json`，`remote-status` 一类的远程管理命令读的是数据库目录里存的远程配置，报 `Failed to temporarily activate remote configuration` 通常是目录/权限问题（要用 `user: root`），不代表连接不通。
 - 不要在这个库上试用第三方 headless 重写版客户端。
 - 不要打开 `use_path_obfuscation`：一旦开启，管道只能拿到游标级间接证据，代码会拒绝据此删除任何知乎源文件。
 - 不要把 `livesync-settings.json`、`setup.uri` 提交进 Git 或贴进对话。

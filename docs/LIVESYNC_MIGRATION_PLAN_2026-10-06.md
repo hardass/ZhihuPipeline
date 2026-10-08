@@ -127,7 +127,9 @@ GitHub 角色（**已定，2026-10-06**）：链路验收通过后**彻底停用
 
 **当前状态**：库已解锁（用户 GUI 操作），节点首次 `sync` 进行中。注意解锁把 `accepted_nodes` 从 3 个重置成 1 个，所以**收尾必须先让其它设备重新入列再加锁**，否则会静默挡住那台仍在正常同步的 1.0.21 设备。
 
-**尚未做的收尾项**（节点验通后）：把管道的 `output.vault_path` 指向 `zhihu-vault`、`git.sync_mode` 翻到 `livesync`、并在 NAS 配置里补 `livesync:` 段（`couchdb_url: http://127.0.0.1:5984`、`db_name: obsidian-vault`、`node_name: zhihu-node`，凭据只走 `LIVESYNC_COUCHDB_USER/PASSWORD` 环境变量）；把节点容器化常驻（cron 风格 `mirror`+`sync`，`/vault` 只读挂载，`mem_limit` 显式设置）；最后做一次"停节点必须在 5 分钟内告警"的故障演练，然后按决定彻底停用 GitHub。
+**尚未做的收尾项**（节点验通后）：把节点容器化常驻（**`daemon` 模式**，`--vault` 挂整库 `notes` 目录，`user: root`，`mem_limit` 显式设置）、`git.sync_mode` 翻到 `livesync`、并在 NAS 配置里补 `livesync:` 段（`couchdb_url` 用本机 `http://127.0.0.1:5984` 而不是公网隧道、`db_name: obsidian-vault`、**`node_name` 必须填 CLI 生成的 `headless-vault-547ad80b1bc0fb6f`**，`deviceAndVaultName=zhihu-node` 对 CLI 节点不起作用，填错会让心跳永远判为不新鲜）；再做一次"停节点必须在 5 分钟内告警"的故障演练，然后按决定彻底停用 GitHub，并删除 `zhihu-vault`（808M）与 `.git`（2.6G）。
+
+> 阶段 2.2 的"知乎专用 vault"路线已被上面的拓扑决定取代：既然不设路径过滤，节点挂哪儿就把整库落到哪儿，另建一个专用目录只会多出一份副本并让被移走的笔记落在过滤之外。
 
 ### 阶段 3b · 原金丝雀方案（已被上面的探针方案取代，保留作参考）
 

@@ -22,6 +22,27 @@ audit and node preflight) was removed the same day it landed.
 - Follow-up defect recorded in AGENTS.md: `../../assets/...` links are depth-dependent
   and break when a note moves to a one-level folder; the fix is vault-resolved embeds.
 
+## [2026-10-08] Node topology: whole-vault mount, `daemon` mode
+
+Settled the two questions that decide the rest of the cutover.
+
+- The node watches `/share/homes/hardass/zhihu-pipeline/notes` — the directory the
+  pipeline already writes into — instead of the Zhihu-only `zhihu-vault`. With no
+  path allow-list the mount *is* the scope, and reusing the existing full-vault
+  directory costs no extra copy (329GB free on the data volume; the old 512m note
+  was about RAM, not disk).
+- Mode is `daemon`, not the cron `mirror`+`sync` loop. `mirror` deliberately does not
+  propagate deletions, which would leave notes the user deleted or relocated on the
+  NAS and re-push them over every device. `daemon` propagates deletions both ways;
+  the accepted trade-off is that a file missing on the NAS also reads as a deletion,
+  so other devices must not edit during the first reconciliation pass.
+- Measured while doing this: `remote-status` needs a *stored remote configuration* and
+  fails with `Failed to temporarily activate remote configuration` when the container
+  cannot write `node-data` (owned by `admin`, mode 700) — compose now runs as root.
+  And the node's real key in the milestone doc is the CLI-generated
+  `headless-vault-<hash>`; `deviceAndVaultName` is ignored, so `livesync.node_name`
+  must be that hash or the heartbeat check always reads the node as stale.
+
 ---
 
 ## [2026-10-06] Delivery is verified before the inbox is consumed
