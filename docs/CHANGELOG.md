@@ -2,6 +2,31 @@
 
 本文件记录项目的重大变更、安全修复和架构调整，供后续维护者和 Agent 参考。
 
+## [2026-10-08] Delivery switched to LiveSync and verified end to end
+
+`git.sync_mode` went `git` → `none` (paused) → `livesync`, with a `livesync:` block
+appended to the NAS config in place (CouchDB credentials read from the
+`obsidian-couchdb` container environment, never printed) and the node started as a
+`daemon` container over the whole vault directory.
+
+- End to end: a probe note written into `notes` reached CouchDB as a document within
+  tens of seconds, and the probe left no residue on either side afterwards.
+- **The deletion assumption behind the topology did not survive measurement.** A file
+  deleted on the NAS was not propagated to the server within 180s (the document had to be
+  tombstoned by hand), and a document deleted on the server while the NAS file was still
+  present was *not* re-pushed. The node is deletion-neutral in practice: it cannot wipe the
+  vault by losing a file, but it also will not carry deletions for us. The "daemon propagates
+  deletions" rationale recorded earlier is corrected by this measurement.
+- CLI ceiling recorded so nobody reads it as data loss: `sync` does not persist the whole
+  changes feed, and four `sync`+`mirror` rounds in a fresh isolated database stopped at the
+  same 6,716 files. Absence from the node directory is not evidence of absence.
+- Two probe bugs fixed the same day (`dc12b10`, `e511128`): existence checks now batch
+  document ids through `_all_docs`, tombstones no longer count as delivered, and the
+  heartbeat picks the freshest entry when a CLI node re-registers under a new id.
+- Still open: `Delivery Unconfirmed: 2` points at two archive-era entries whose files are not
+  on disk, so `status` should separate "nothing to deliver" from "waiting"; and the ~38
+  documents that exist only on the server are parked as their own task.
+
 ## [2026-10-08] Attachment prefix reverted: notes get moved, folders cannot gate them
 
 The dedicated `assets/知乎附件/` prefix (and its migration tool, `check-attachments`

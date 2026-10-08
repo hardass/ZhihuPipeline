@@ -69,7 +69,11 @@ sudo -n "$QNAP_DOCKER" -H unix:///var/run/docker.sock logs --tail 200 zhihu-pipe
 - 实测 LiveSync 的键规则：**文档 `_id` 是小写化的 vault 相对路径，原始大小写保存在 `metadata.path` 里**（例：id `jobs/gemini gems/ai context.md` ↔ path `Jobs/Gemini Gems/AI context.md`）。QNAP 的 `/share/homes` 经实测**区分大小写**，所以节点写盘要用 `metadata.path`，不能拿 id 当路径，否则会造出大小写重复的目录树。
 - 管道投递已临时暂停：NAS `config.yaml` 的 `git.sync_mode` 就地改为 `none`（inode 未变），容器内 `status` 确认 `Publish Channel: none`、`Delivery Unconfirmed: 2`——暂停期间不会消费知乎收件箱，这是设计中的安全状态。
 - 节点忽略名单必须含 `/\.obsidian/`（任意深度）与 `\.DS_Store$`：这个库里有**嵌套的 Obsidian 子库**（`Jobs/.obsidian/`、`Travel/Japan202606/.obsidian/`、`Investiment/.obsidian/`），它们各带自己的插件与 `github-sync.log`；不过滤就会整批进库，而日志会每轮增长。
-- 尚未做：Mac 重新入列并把约 5900 个文件拉回（需用户在手机/iPad 上生成 Setup URI）、节点常驻（daemon 挂整库 `notes`）、管道 `livesync:` 配置与 `sync_mode` 从 `none` 翻到 `livesync`、故障演练、CouchDB 重新加锁、GitHub 停用与 `.git` 删除。
+- **投递通道已切到 LiveSync 并实测通过**：NAS `config.yaml` 追加了 `livesync:` 段（`couchdb_url: http://127.0.0.1:5984`、`db_name: obsidian-vault`、`node_name: headless-vault-547ad80b1bc0fb6f`，凭据取自 `obsidian-couchdb` 容器环境变量，未在任何输出里出现），`git.sync_mode` 从 `none` 翻到 `livesync`，容器内 `status` 显示 `Publish Channel: livesync`。端到端验证：在 `notes` 里写一个探针文件 → 节点在数十秒内把它发布成 CouchDB 文档 → 探针删除后本地与服务器都不再有残留。
+- **删除语义实测（与之前的假设不同，务必按实测理解）**：① 在 NAS 磁盘上删掉文件，`daemon` **不会**把删除推给服务器（180 秒内文档仍然存在，最后是手工打 tombstone 才删掉的）；② 在服务器上把文档删掉（模拟用户在手机上删除），NAS 上文件还在，节点**不会把它推回去复活**（180 秒内保持已删除）。所以这个节点在删除方向上是"中性"的：它不会因误删而毁库，但也**不要指望它传播删除**——之前"选 daemon 就是为了传播删除"的判断没有被 CLI 的行为证实。
+- **CLI 复制能力上限**：`livesync-cli sync` 不会把整条变更流落盘（日志反复出现 "Replication result received, but not processed automatically in CLI mode"），实测 `sync`+`mirror` 连跑 4 轮停在 6,716 个文件不再增长，隔离出来的第二个库也一样。所以节点侧永远拿不到库里另外约 5,900 个文档（绝大多数是陈旧重复项），别把"节点没同步某个文件"当成"文件丢了"。
+- 探针修了两个会静默失效的判断（`dc12b10`、`e511128`）：存在性检查改用 `POST /_all_docs` 批量取 id（`GET /{db}/{path}` 会把带 `/` 的文档 id 解析成附件路径而返回 404，删除时报 "Attachment name ... starts with an underscore" 才暴露真因）；tombstone 行带 id 且无 error，原逻辑会把你删掉的笔记判成"已投递"；另外 CLI 节点每次启动换新随机 id 而 `device_name` 不变，心跳必须取最新的那条。
+- 遗留待办：`Delivery Unconfirmed: 2` 是两条历史记录（`知乎收藏/归档/2025-07-15 天涯论坛…`、`2026-08-09 为什么很多人都不建议让别人知道自己的近况？`），NAS 上对应文件不存在，投递环节会正确跳过但数字长期挂着误导人，需要把"文件已不在磁盘"与"等待投递"在 `status` 里分开；约 38 个真实内容文件仍只在服务器上有、Mac 上没有，作为独立任务处理，不阻塞投递。
 
 ## NAS 运维陷阱（实测）
 
