@@ -2,6 +2,35 @@
 
 本文件记录项目的重大变更、安全修复和架构调整，供后续维护者和 Agent 参考。
 
+## [2026-10-09] The "69 server-only files" were old deletions, not losses
+
+The recovery workstream is closed as a non-issue, and the correction matters more
+than the original claim, so the evidence is recorded in full.
+
+- All 78 documents behind the "69 missing files" number carry LiveSync's soft-delete
+  marker (`deleted: true` inside the document body). The earlier audits only checked
+  the CouchDB-level tombstone flag (`value.deleted` in `_all_docs`) and therefore read
+  deleted files as live-but-unreachable ones. Their chunks are still present simply
+  because LiveSync reclaims chunks at garbage-collection time.
+- Timing rules out everything done this week: paging the changes feed 40,000 entries
+  back from the head (roughly to 2026-09-22) never touches these ids, and the
+  whole-database backup taken on the morning of 2026-10-09 already shows them
+  deleted. The 10-07 Mac incident, the duplicate prune and the 09:13 re-enable of Mac
+  sync are all excluded as causes. These files were deleted on some device weeks ago
+  and the deletion replicated normally.
+- Consequently the Mac-side "rebuild and fetch" could not help (after the index
+  rebuild it matches the server exactly, so there is nothing to write - measured:
+  ten minutes of active sync, zero files), and the planned revision bump was called
+  off before any write: it would have resurrected deliberately deleted files on all
+  three devices. No server mutation happened.
+- Resurrection remains possible per file (write a new revision with `deleted: false`
+  and the original mtime; bodies and chunks are intact) **until someone runs
+  Garbage Collection**. The Maintenance screen's "Perform Garbage Collection" button
+  must stay untouched until that decision is made.
+- Net effect on the incident accounting: the 2026-10-07 vault accident cost zero
+  content (plugin binaries excepted, reinstallable). What this week's recovery
+  actually restored was the Mac plugin's index and configuration, not notes.
+
 ## [2026-10-09] Duplicate documents pruned, project audited, detour residue removed
 
 Three separate things landed today; they are recorded together because each one
