@@ -29,10 +29,15 @@ services:
       # Empty means: use the CouchDB _changes feed (real-time). Set to N seconds
       # to fall back to polling if the feed ever stalls behind the tunnel.
       - LIVESYNC_INTERVAL=
-    # `daemon` = one mirror scan, then continuous two-way sync, and it DOES
-    # propagate deletions. That is the point: a note deleted or moved on a phone
-    # must not survive on the NAS and get re-pushed to every device, which is
-    # what the cron-style `mirror` loop used here before would have done.
+    # `daemon` = one mirror scan, then continuous two-way sync.
+    #
+    # Measured deletion behaviour (2026-10-08, do not trust the earlier note
+    # that daemon "propagates deletions"): deleting a file on the NAS did NOT
+    # reach the server within 180s, and deleting a document on the server did
+    # NOT resurrect the file on the NAS. This node is deletion-neutral in both
+    # directions, which is the safe side: it cannot destroy the vault by
+    # mistake. The trade-off is that a note deleted on the NAS keeps its old
+    # copy in CouchDB until a device removes it.
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |

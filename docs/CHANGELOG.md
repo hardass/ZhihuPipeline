@@ -2,6 +2,62 @@
 
 本文件记录项目的重大变更、安全修复和架构调整，供后续维护者和 Agent 参考。
 
+## [2026-10-09] Duplicate documents pruned, project audited, detour residue removed
+
+Three separate things landed today; they are recorded together because each one
+changed what the next step can safely be.
+
+**1. The stale duplicate documents were pruned from CouchDB.** 5,831 file documents
+whose content was byte-identical to something already on disk (proved by comparing
+their `h:+` chunk id sets, which are content fingerprints and need no passphrase)
+were tombstoned one by one - `_bulk` is rejected on this server, first with
+"Referer header required" then with "illegal_docid". `doc_count` 66603 → 60772,
+file documents 12,633 → 6,802, zero failures. Chunk documents were deliberately
+untouched: survivors and duplicates share the same chunks. Rollback point:
+`obsidian-vault-backup-20261008`, taken before the prune.
+
+**2. What is still missing is 69 content files, and they are intact on the server.**
+Recounted by content rather than filename: of 6,802 file documents the Mac matches
+6,722; 79 have no equivalent on disk, of which 10 are probes and junk. Every one of
+those 79 documents and all 1,764 chunks they reference were verified present and
+live, so nothing was damaged by the prune. The three "orphan notes" that had a
+single copy on the NAS in early October are now all on the server; two of the three
+are on the Mac, the third is part of the 69.
+
+Recovery attempts on the node side are closed for good. A fourth experiment - a
+fresh store (settings + keyvalue-db, no LevelDB) replicating against the *pruned*
+database - again produced only "Replication result received, but not processed
+automatically in CLI mode" and 6.1MB in two minutes. The production node's 2.8GB
+store was built by pushing local files, never by pulling. The remaining route is
+the Obsidian plugin on a device that holds the files.
+
+**3. Audit and cleanup.** `docs/AUDIT_2026-10-09.md` records the measured state of
+the whole project and what the previous rounds left behind. Acted on:
+
+- NAS: tagging disabled (`tagger.enabled: false`) - the GB10 endpoint has been
+  unreachable since 2026-10-07 and 18 items were failing and retrying every run
+  forever. Items stay `pending`, which is the honest state.
+- Repo: removed `src.tar.gz` (a committed binary snapshot), `IMPLEMENTATION_PLAN.md`,
+  three one-off deploy scripts, the LM Studio local-tagger leftovers
+  (`com.hardass.zhihutagger.plist` and friends - the LaunchAgent was already
+  `.disabled`), and six point-in-time docs whose conclusions had been overturned
+  (`NAS_AUDIT_2026-09-16`, `SYNC_ANALYSIS_2026-10-06`,
+  `LIVESYNC_MIGRATION_PLAN_2026-10-06`, `STEP_BY_STEP`, `VIDEO_RESEARCH_2026-09-20`,
+  `VIDEO_SYNC_TOPOLOGY_2026-09-20`). They remain recoverable from git history at
+  `5f46dc8`; the facts that still matter were folded into `AGENTS.md`, the audit and
+  this file.
+- `README.md` rewritten: it still described GitHub push plus Obsidian Git pull as the
+  delivery mechanism, and `config.example.yaml` still defaulted to `sync_mode: "git"`.
+  Both now describe LiveSync as production and `git` as a rollback path scheduled for
+  removal.
+- `AGENTS.md` collapsed from three contradictory "current state" blocks into one.
+- The node compose file no longer claims `daemon` propagates deletions; the measured
+  behaviour (deletion-neutral both ways) is stated instead.
+
+Not done, deliberately: `git_sync.py` and the `auto_archive` / `clear-archive` /
+`cleaner.py` half-retired path stay until GitHub is actually switched off, and the
+`images.py` relative-link bug stays its own task.
+
 ## [2026-10-08] Delivery switched to LiveSync and verified end to end
 
 `git.sync_mode` went `git` → `none` (paused) → `livesync`, with a `livesync:` block

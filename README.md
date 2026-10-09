@@ -1,105 +1,76 @@
-# 🚀 从吃灰收藏夹到私人知识智库：ZhihuPipeline 终极全自动指南
+# ZhihuPipeline
 
-你是不是也经常这样：
-在地铁上、马桶上、睡觉前，刷到一篇惊为天人的知乎回答，激动地点下 **“★收藏”**。心里默念着“周末一定拿出来仔细复习”，然后……这篇干货就永远躺在收藏夹的黑洞里，吃灰到老？
+把知乎收藏夹当收件箱用：收藏一篇回答/文章/视频 → NAS 上的管道把它下载成 Obsidian 笔记 → headless LiveSync 节点发布到 CouchDB → Mac、手机、iPad 自动收到。确认送达之后，管道才把这条从知乎收藏夹里移除。
 
-**“收藏即遗忘”**，这是这个时代信息焦虑的绝症。
-但今天，我要向你隆重介绍一副彻底治愈它的猛药——**ZhihuPipeline 混合架构引擎**！
+## 架构
 
----
-
-## 💡 为什么它能改变你的知识焦虑？
-
-ZhihuPipeline 不是一个简单的爬虫，它是一个为你全自动打工的“私人知识管家”。
-它的终极目标只有一个：**让你只需在手机上点一下收藏，剩下的所有脏活累活全由机器接管，最终直接在你面前呈现出分类得整整齐齐的本地知识库。**
-
-### 🌟 核心杀手锏：
-
-1. **📥 Inbox 全自动消费模式**：文章一旦被抓取，管家会自动帮你从知乎收藏夹里“取消勾选”。彻底把收藏夹变成“待办收件箱 (Inbox)”，看完就清，轻装上阵！
-2. **🛡️ 纯 UI 无感抗风控**：彻底抛弃老旧的直接 API 调用，内嵌 Playwright 真实有头浏览器引擎。什么 `x-zse-96` 动态签名？什么 `403 Forbidden` 封锁？在真实模拟的点击面前，统统无效！
-3. **📱 登录通知与全自动运行**：定时任务自动完成搜索、下载、打标签和 GitHub 同步；登录失效时由统一 Notify Gateway 推送二维码。Telegram 指令控制面是可选项。
-4. **📸 完美适配 Obsidian**：自动下载超清 `_1440w` 图片，本地化图片路径（告别断网就图裂的尴尬），保留折叠的高赞评论。直接对接 Obsidian，知识资产 100% 本地化。
-5. **🎬 低体积视频归档**：识别知乎 Pin 中的视频，默认下载最低清晰度 `LD`，并以 Obsidian 可播放的本地附件形式保存。视频与知乎笔记一起进入 Git 同步范围。
-
----
-
-## 🧠 终极「大小脑」混合架构设计 (The Secret Sauce)
-
-为什么有些爬虫软件总是卡死或者拖慢你的电脑？为什么云端大模型 API 总让你担心隐私泄露？
-我们采用了一种极度优雅的**「大小脑分工」混合架构**，完美兼顾了自动化、算力和隐私：
-
-### ☁️ NAS：全天候下载与打标签
-- **角色**：专职做下载、排队、存图，并调用 GB10 上的 Qwen 模型完成打标签。
-- **运行方式**：通过 Docker 7x24 小时常驻在低功耗 NAS 或家用服务器上。
-- **机制**：它每隔两个小时（还会自动加入随机延时防封号）巡视收藏夹。新文章下载为 Markdown 后，由 GB10 完成分类、概念、难度和摘要标注，最后再推送到 GitHub。
-
-### 💻 Mac：Obsidian 与私人笔记
-- **角色**：继续管理你的整个 Obsidian vault，包括私人笔记。
-- **运行方式**：Obsidian Git 从 GitHub 拉取 NAS 已下载并打好标签的知乎文章；你仍然可以正常新增、修改并 push 私人笔记。
-- **机制**：Mac 端不再需要为知乎文章运行本地 tagger，避免 Mac 与 NAS 同时修改知乎 Pipeline 的状态文件。
-- **🚀 GB10 远程服务**：NAS 通过 OpenAI-compatible 接口调用 GB10 上的 Qwen 模型；模型服务由 GB10 自己管理，NAS 不需要安装或驻留本地模型。
-- **零成本 & 绝对隐私**：全程不用调用任何外部商业 API，不仅一分钱不花，你收藏的私密知识也绝对不会被大公司拿去炼丹！
-
----
-
-## 🛠️ 如何打造你自己的自动化管家？（配置指南）
-
-### 视频下载与 Git 同步
-
-知乎视频默认使用 `LD`（最低清晰度）版本，适合手机查看知识性内容，并限制单个视频大小，避免意外下载超大文件：
-
-```yaml
-sync:
-  video_enabled: true
-  video_quality: "ld"       # ld / sd / hd / fhd
-  video_max_size_mb: 50      # 单个视频上限（十进制 MB）
+```
+知乎收藏夹
+   │  Playwright 有头浏览器（真实点击，绕开 x-zse-96 签名）
+   ▼
+NAS 容器 zhihu-pipeline        每 ~2h 一轮，下载 Markdown + 图片 + 低清视频
+   │  写入 /share/homes/hardass/zhihu-pipeline/notes
+   ▼
+NAS 容器 zhihu-livesync-node   daemon 模式，挂同一个 notes 目录
+   │  发布到 CouchDB obsidian-vault（E2EE）
+   ▼
+Mac / 手机 / iPad 的 Obsidian + Self-hosted LiveSync
 ```
 
-下载后的 Markdown 会嵌入 `assets/知乎视频/` 下的本地视频文件。自动 Git 同步只会提交知乎收藏目录和该视频目录，不会触碰共享 Vault 中的私人笔记或 `.obsidian` 设置。
+管道自己**不写 CouchDB**。它只用 `publish_probe` 去问"这份文档到了没有"，问到了才消费知乎收件箱；问不到就留着条目、报警，绝不静默丢弃。这是整套设计里唯一真正会丢数据的环节，所以它被做成 fail-closed。
 
-想要拥有这套极其优雅的工作流？只需要几步简单的配置：
+投递通道由 `git.sync_mode` 决定：`livesync`（生产）、`git`（回滚用，待删）、`none`（安全暂停，不消费收件箱）。
 
-### 第一步：在 NAS 上部署体力工 (Docker)
+## 部署
 
-1. 克隆代码库并准备配置：
-   ```bash
-   git clone https://github.com/<OWNER>/ZhihuPipeline.git
-   cd ZhihuPipeline
-   cp config.example.yaml config.yaml
-   ```
-2. 修改 `config.yaml`（注意：一定要关闭 NAS 的 tagger，节省 CPU 资源）：
-   ```yaml
-   tagger:
-     enabled: true  # 调用 GB10 上的 Qwen 模型完成打标签
-   ```
-3. 配好 Notify Gateway、GitHub 远程仓库路径，然后一键起飞：
-   ```bash
-   docker compose up -d --build
-   ```
+**1. 管道容器**
 
-### 第二步：在本地 Mac 上配置 Obsidian 同步
+```bash
+git clone git@github.com:hardass/ZhihuPipeline.git && cd ZhihuPipeline
+cp config.example.yaml config.yaml   # 填 notify gateway、livesync 凭据
+docker compose up -d --build
+docker compose exec zhihu-pipeline python -m zhihu_pipeline check-auth   # 扫码登录知乎
+```
 
-1. 在 Mac 上打开 Obsidian，让 Obsidian Git 正常 pull/push 整个 vault。
-2. NAS 负责知乎目录的下载、GB10 打标签和 GitHub push；Mac 端不再运行 nightly tagger。
-3. **旧版本地打标指令（仅在不使用 NAS GB10 流程时使用）**：
-   ```bash
-   zhihu-tag            # 极速打标（服务未开自动唤醒，打完自动释放内存）
-   zhihu-tag --dry-run  # 仅预览待打标文章列表，不调用模型
-   zhihu-tag --force    # 强制全部重新打标
-   ```
-   *如果启用了 NAS GB10 流程，请不要同时运行这些本地 tagger 脚本。*
+生产入口是 `worker`（定时同步 + 可选 Telegram 控制面）。`config.yaml` 以单文件 bind mount 挂进容器，**改完必须重启容器**，而且原地写入要用 `cat new > old` 保住 inode。
 
----
+**2. LiveSync 节点**
 
-## 🛡️ 关于数据安全与隐私的郑重承诺
+见 [`deploy/livesync-node/README.md`](deploy/livesync-node/README.md)。要点：镜像从上游 `src/apps/cli/Dockerfile` 构建；配置靠一台已配好的设备生成的 Setup URI 导入；节点挂**整库目录**、不设路径白名单；容器必须以 root 跑，否则 node-data 权限不对会静默不激活。
 
-你可能会担心：“这么复杂的自动化系统，会不会把我的账号 Token 推送到公网 GitHub 上泄露？”
+## 日常操作
 
-**不会，只要按示例配置并避免把真实配置文件加入版本库。**
-我们从底层架构上就杜绝了这种可能：
-- 核心配置文件 `config.yaml` 以及环境变量 `.env` **已被永久加入 `.gitignore` 黑名单**，你填入的密码、Token 永远只存在于你本地。
-- 所有浏览器产生的登陆态 `chrome_profile/` 和调试生成的临时日志，都被严密过滤，甚至连打标的脚本都不会被提交。你的隐私数据壁垒森严！
+```bash
+docker compose exec zhihu-pipeline python -m zhihu_pipeline status   # 投递状态、待处理数
+docker compose exec zhihu-pipeline python -m zhihu_pipeline sync     # 立刻跑一轮
+docker compose exec zhihu-pipeline python -m zhihu_pipeline tag --dry-run
+```
 
----
+`status` 里的 `Delivery Waiting` 是"还没送达、会继续等"，`Delivery Unrecoverable` 是"记录在案但文件已不在磁盘上"，两者分开计。
 
-别再让知识在收藏夹里发霉了。今天就花十分钟把 ZhihuPipeline 部署起来，享受这种**睡一觉醒来，知识已经被喂到嘴边且分类整齐**的极致快感吧！
+## 配置要点
+
+`config.example.yaml` 每一项都有注释。几个容易踩的：
+
+- `sync.remove_after_sync: true` 才是收件箱模式；它受投递证明约束，不会先删源。
+- `sync.video_quality: ld` + `video_max_size_mb: 50`：CouchDB 实测在 49.15MiB 附近拒收文档，50（十进制 MB）是刻意的安全边界。
+- `output.manifest_path: .pipeline/manifest.json`：状态文件放在点目录里，Obsidian 不显示，同步通道也不会把它带到别的设备再带回来。
+- `livesync.node_max_stale_minutes`：要远大于心跳间隔。实测空闲但健康的 CLI 节点可以 23 分钟不刷新心跳，卡太紧会误报。
+- `tagger.enabled`：模型端点挂掉时应该关掉，否则每轮固定失败若干条并无限重试。
+
+## 已知限制
+
+- **无视频的想法（pin）不会被归档**。`_is_supported_item` 只在 pin 带可用视频时才处理，纯文字/图片 pin 被跳过且只打 DEBUG 日志，会一直留在收藏夹里。
+- 附件链接是深度依赖的相对路径（`../../assets/...`），笔记被移到一级目录时会断链。修法见 `docs/AUDIT_2026-10-09.md`。
+- CLI 节点无法靠复制建立本地库（"Replication result received, but not processed automatically in CLI mode"），它只能发布自己磁盘上的文件，不能把库里其他设备的内容取回来。
+
+## 文档
+
+- [`docs/AUDIT_2026-10-09.md`](docs/AUDIT_2026-10-09.md) — 当前真实状态、遗留缺陷、下一步
+- [`docs/DESIGN.md`](docs/DESIGN.md) — 架构与模块设计
+- [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — 重大变更与实测结论
+- [`AGENTS.md`](AGENTS.md) — Agent 运行规则与 NAS 运维陷阱
+
+## 隐私
+
+`config.yaml`、`.env`、`chrome_profile/`、`notes/`、`logs/` 全部在 `.gitignore` 里，凭据不会进版本库。通知走自建 notify-gateway（Cloudflare Worker），模型调用走局域网内的 GB10，两者都不经过商业 API。

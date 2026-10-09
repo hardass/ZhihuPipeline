@@ -28,11 +28,13 @@ telegram:
 # Zhihu inbox after the configured channel proves the document arrived.
 git:
   enabled: false                                     # Set to true only for sync_mode: git
-  # git      -> publish with GitHub pull/push (this process owns delivery)
   # livesync -> a headless Self-hosted LiveSync node mirrors the vault into
-  #             CouchDB; GitHub is not contacted at all, not even pulled
+  #             CouchDB; GitHub is not contacted at all, not even pulled.
+  #             This is the production channel.
+  # git      -> publish with GitHub pull/push (this process owns delivery).
+  #             Kept only as a rollback path; scheduled for removal.
   # none     -> nothing publishes (used to pause delivery safely)
-  sync_mode: "git"
+  sync_mode: "livesync"
   repo_url: "https://<USERNAME>:<PAT_OR_TOKEN>@github.com/<USERNAME>/<REPO>.git"
   branch: "main"
   user_name: "YOUR_GITHUB_USERNAME"
@@ -44,7 +46,7 @@ git:
 # git.sync_mode is "livesync"). This pipeline never writes to CouchDB itself -
 # it only asks whether the LiveSync node has published the new notes yet.
 livesync:
-  enabled: false                                     # true when a node mirrors this vault into CouchDB
+  enabled: true                                      # true when a node mirrors this vault into CouchDB
   couchdb_url: "http://127.0.0.1:5984"                # Same-host CouchDB avoids the public tunnel
   db_name: "obsidian-vault"
   username: "obsidian_admin"                          # Or LIVESYNC_COUCHDB_USER
@@ -108,7 +110,9 @@ selectors:
 
 # Auto-tagging (GB10 remote service or another OpenAI-compatible API)
 tagger:
-  enabled: true                    # NAS mode: download and tag before GitHub push
+  enabled: true                    # Tag after download, before the note is delivered.
+                                   # Set false while the model endpoint is down: items stay
+                                   # "pending" instead of failing every run forever.
   backend: "openai_compatible"    # Works with GB10, LM Studio, DeepSeek, SiliconFlow, OpenAI, etc.
   base_url: "https://your-gb10-host.example/v1"
   model: "qwen3-coder-next"
