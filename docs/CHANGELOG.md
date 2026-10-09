@@ -2,6 +2,32 @@
 
 本文件记录项目的重大变更、安全修复和架构调整，供后续维护者和 Agent 参考。
 
+## [2026-10-09] Attachment layout unified back to `assets/<note title>/`
+
+The `assets/知乎附件/` prefix survived on the NAS data even though the code was
+reverted on 10-08, so the vault carried two layouts at once. The user authorised
+collapsing it back to one.
+
+- NAS: 181 attachment directories moved up a level, 189 note bodies rewritten
+  (2,618 links), zero broken relative links afterwards. The pre-change copies of
+  those 189 notes are under `notes/.pipeline/backups/pre-unify-20261009-211337`,
+  inside a directory the node ignores, so the backup cannot sync itself.
+- Server: moving files on disk does not make the node publish them. Its local
+  store still holds a sync record for the destination path (from before the
+  migration), and a restart plus a full mirror scan pushed nothing. The 3,426
+  stale-prefix documents were therefore re-homed directly: each document body was
+  copied to the new `_id` with its `path` rewritten, reusing the same `h:+` chunk
+  ids - chunks are content-addressed, so nothing had to be re-encrypted or
+  re-uploaded. Every one of the 3,426 was verified byte-identical at the new path
+  before its old document was tombstoned (3 failures were already-dead rows).
+- Mac: the same 189 bodies were rewritten locally, and `assets/知乎附件/` was
+  removed only after all 3,423 files in it were verified byte-identical to a copy
+  at the unified path. Sampled 561 asset links afterwards: zero broken.
+
+Operational lesson recorded in `AGENTS.md`: renaming or moving attachments must be
+done server-side by copying document bodies, not by moving files and hoping the
+node notices.
+
 ## [2026-10-09] The "69 server-only files" were old deletions, not losses
 
 The recovery workstream is closed as a non-issue, and the correction matters more
