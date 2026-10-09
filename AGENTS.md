@@ -44,6 +44,8 @@ sudo -n "$QNAP_DOCKER" -H unix:///var/run/docker.sock logs --tail 200 zhihu-pipe
 - **2026-10-09 已做的清理**：NAS 打标关掉（`tagger.enabled: false`，端点长期 530，18 条会无限重试）；删除弯路残留 `restore-vault`/`fetchlocal`/`node-data.broken-*`/`~/zhihu-vault` 与两个死容器；仓库删掉 `src.tar.gz`、`IMPLEMENTATION_PLAN.md`、一次性脚本、LM Studio 本地打标残留，六份时点文档合并进本文件与 `docs/AUDIT_2026-10-09.md`。
 - **保留的回退点**：CouchDB `obsidian-vault-backup-20261008`（清理重复文档前的整库副本，`doc_count` 66603）、Mac `~/notes-snapshot-20261008`（6778 文件 / 2.5G）、NAS `backups/pre-attachm-20261007-080102`（2.5G）与 `backups/pre-knowledge-merge-20260917-220517`（5.1G）、`livesync-node/livesync-settings.pre-daemon.*`、`keyvalue-db.stale-provenance.*`。
 - **遗留待办**：观察 1–2 天投递正常后停用 GitHub（删 `git_sync.py` 与 `sync_mode` 的 git 分支、清 `auto_archive`/`clear-archive`/`cleaner.py` 半退役代码、移走 `notes/.git` 2.6G）；修 `images.py` 的深度依赖相对链接 `../../assets/...`（笔记移到一级目录会断链，实测已有 2 处）；无视频的 pin 目前被静默跳过；GB10 打标端点仍坏（独立工作线）。69 个"缺失文件"已结案为旧删除，插件本体已重装，加锁已取消——这三项不要再出现在待办里。
+- **Mac 的上传方向是坏的（2026-10-09 晚实测，未修好）**：拉取正常（全量重建后库与服务器一致），但本地新增/修改永远推不上去——连续模式、一次性模式、重建索引后都试过，日志里只有本地 `Document saved`，没有任何对服务器的 PUT；隧道写入从 Mac 用 curl 直测是通的（401 到达源站），所以不是网络层。下一个候选修法：在 Mac 上重新导入一次 Setup URI 刷新连接凭据。**在修好之前，Mac 上新写的笔记要经 NAS 代发**（把文件拷进 NAS vault，节点秒级发布）。
+- **vault 存在双附件布局，不要"清理"任何一边**：10-07 的附件前缀迁移只在 NAS 数据上生效过，180 篇旧笔记的正文链接指向 `assets/知乎附件/<标题>/`，新笔记指向 `assets/<标题>/`。Mac 在 2026-10-09 的全量重建里补齐了 3,423 个 `知乎附件` 文件（786M），那些旧笔记的图在 Mac 上因此才是好的。统一布局需要改 180 篇正文链接并单独授权，见 `docs/AUDIT_2026-10-09.md`。
 
 
 ## NAS 运维陷阱（实测）
