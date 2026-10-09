@@ -38,12 +38,12 @@ sudo -n "$QNAP_DOCKER" -H unix:///var/run/docker.sock logs --tail 200 zhihu-pipe
 - **节点拓扑已定稿**：`zhihu-livesync-node` 挂整库目录（管道写的那个 `notes`）、`daemon` 模式、无路径白名单、`user: root`。**删除语义是"中性"的**（实测：NAS 侧删文件不推给服务器，服务器侧删文档也不会被推回来复活）——不要指望它传播删除，也别担心它误删库。
 - **CLI 复制能力上限（第 4 次实测确认，别再试）**：`livesync-cli` 在命令行模式下不把复制结果写进自己的存储（日志原话 "Replication result received, but not processed automatically in CLI mode"）。全新空存储 + 已清理重复文档的库跑 `sync`，2 分钟只落 6.1MB。生产节点那 2.8GB 存储是本地文件 push 出来的，不是拉下来的。推论：`pull`/`cat`/`info`/`mirror` 只能服务它已有的文档；**"节点库里没有"不等于"文件不存在"**。
 - **69 个"服务器独有文件"是误判，已结案（2026-10-09 二次核对）**：那 78 个文档（69 真实内容 + 9 探针/垃圾）全部带 LiveSync 的软删除标记（文档体 `deleted: true`，不是 CouchDB tombstone）。它们的最后一次变更在 changes feed 里位于 4 万条之前（早于约 2026-09-22），且 10-09 早晨的整库备份里就已经是删除态——所以既不是 10-07 事故、也不是重复文档清理、也不是重开 Mac 同步造成的，而是**数周前在某台设备上被删除、删除正常同步**的旧账。分块还在（等 GC），按单个文件复活仍可行（写 `deleted: false` + 原 mtime 的新修订）；**在确认不再需要复活之前，任何设备上都不要点 Maintenance 里的 Perform Garbage Collection**。NAS 磁盘上只剩其中 1 个（节点删除中性的副产品）。
-- **现在绝不能给库加锁**：`locked: false`，`accepted_nodes` 只有一个节点且已 18.5 小时未连；活跃节点里还有一台 v1.0.21。顺序必须是：三台设备各连一次补齐名单 → 全部升到 1.0.35 → 加锁 → 验证锁着仍能同步。
+- **用户决定不加锁（2026-10-09）**：历史上加过一次又解开，解开那一下把 `accepted_nodes` 重置成只剩一台，是后来"名单不齐"麻烦的来源。现在的取舍是明确的：连接仍需服务器地址 + CouchDB 凭据 + E2EE 口令三样齐备，锁只额外防"凭据已泄漏的旧设备"这一种场景，用户接受不防。`locked` 保持 `false`，**不要再提议加锁**，也不要再为加锁去补齐 `accepted_nodes`。
 - **键规则**：文档 `_id` 是小写化的 vault 相对路径，原始大小写在 `metadata.path`；QNAP 的 `/share/homes` 区分大小写，Mac 的 APFS 不区分。写盘必须用 `metadata.path`。`doc_count` 不是文件数（含 `h:+` 分块与删除记录）。
 - **节点忽略名单必须含 `/\.obsidian/`（任意深度）与 `\.DS_Store$`**：库里有嵌套的 Obsidian 子库（`Jobs/`、`Travel/Japan202606/`、`Investiment/`），各带自己的插件与 `github-sync.log`，不过滤会整批进库且日志每轮增长。
 - **2026-10-09 已做的清理**：NAS 打标关掉（`tagger.enabled: false`，端点长期 530，18 条会无限重试）；删除弯路残留 `restore-vault`/`fetchlocal`/`node-data.broken-*`/`~/zhihu-vault` 与两个死容器；仓库删掉 `src.tar.gz`、`IMPLEMENTATION_PLAN.md`、一次性脚本、LM Studio 本地打标残留，六份时点文档合并进本文件与 `docs/AUDIT_2026-10-09.md`。
 - **保留的回退点**：CouchDB `obsidian-vault-backup-20261008`（清理重复文档前的整库副本，`doc_count` 66603）、Mac `~/notes-snapshot-20261008`（6778 文件 / 2.5G）、NAS `backups/pre-attachm-20261007-080102`（2.5G）与 `backups/pre-knowledge-merge-20260917-220517`（5.1G）、`livesync-node/livesync-settings.pre-daemon.*`、`keyvalue-db.stale-provenance.*`。
-- **遗留待办**：取回 69 个文件；Mac 上 linter / importer / notebook-navigator / custom-attachment-location 的 `main.js` 仍缺，要在社区插件列表里重装；设备补齐名单后加锁；观察 1–2 天投递正常后停用 GitHub（移走 `notes/.git` 2.6G）；修 `images.py` 的深度依赖相对链接 `../../assets/...`（笔记移到一级目录会断链，实测已有 2 处）；无视频的 pin 目前被静默跳过。
+- **遗留待办**：观察 1–2 天投递正常后停用 GitHub（删 `git_sync.py` 与 `sync_mode` 的 git 分支、清 `auto_archive`/`clear-archive`/`cleaner.py` 半退役代码、移走 `notes/.git` 2.6G）；修 `images.py` 的深度依赖相对链接 `../../assets/...`（笔记移到一级目录会断链，实测已有 2 处）；无视频的 pin 目前被静默跳过；GB10 打标端点仍坏（独立工作线）。69 个"缺失文件"已结案为旧删除，插件本体已重装，加锁已取消——这三项不要再出现在待办里。
 
 
 ## NAS 运维陷阱（实测）
