@@ -102,13 +102,8 @@ class SyncEngine:
         )
 
     def _is_supported_item(self, item):
-        if item["type"] in ["answer", "article"]:
+        if item.get("type") in ["answer", "article", "pin"]:
             return True
-        if item["type"] == "pin" and self.config.sync.video_enabled:
-            try:
-                return bool(extract_pin_video_assets(item.get("raw_content") or {}, self.config.sync.video_quality))
-            except VideoDownloadError as error:
-                logger.warning(f"Skipping pin {item.get('id')} without a usable video rendition: {error}")
         return False
 
     async def run(self, full_sync: bool = False, target_collection: str = None):

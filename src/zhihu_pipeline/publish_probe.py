@@ -221,7 +221,11 @@ class PublishProber:
         matches = [
             node
             for node in await self.node_statuses()
-            if node.device_name == self.config.node_name or node.node_id == self.config.node_name
+            if (
+                node.device_name == self.config.node_name
+                or node.node_id == self.config.node_name
+                or (self.config.node_name and node.device_name.startswith(f"{self.config.node_name}-"))
+            )
         ]
         if not matches:
             return None
@@ -237,13 +241,17 @@ class PublishProber:
         max_age = self.config.node_max_stale_minutes * 60.0
         age = node.age_seconds()
         if age > max_age:
+            try:
+                db_cursor = await self.database_cursor()
+                if node.cursor >= db_cursor:
+                    return True, f"node '{node.device_name}' is quiescent at database cursor {node.cursor}"
+            except Exception:
+                pass
             return False, (
                 f"node '{node.device_name}' last replicated {age / 60.0:.1f} min ago "
                 f"(limit {self.config.node_max_stale_minutes:.0f} min)"
             )
         return True, f"node '{node.device_name}' heartbeat {age / 60.0:.1f} min ago"
-
-    # ---------------------------------------------------------- path existence
 
     # ---------------------------------------------------------- path existence
 
@@ -254,11 +262,13 @@ class PublishProber:
 
         Only leading "./" and "/" are removed - a plain ``lstrip("./")`` would also
         eat the leading dot of a dotfile such as ``.DS_Store``.
+
+        LiveSync document IDs in CouchDB are always lowercased.
         """
         path = str(vault_path).strip()
         while path.startswith("./"):
             path = path[2:]
-        return path.lstrip("/")
+        return path.lstrip("/").lower()
 
     async def existing_docs(self, vault_paths: Sequence[str]) -> set[str]:
         """
@@ -270,14 +280,23 @@ class PublishProber:
         returns with a revision (measured against the live database). Trusting the
         URL form would report every delivered note as missing, which is fail-safe
         but permanently blocks the inbox from being consumed.
+
+        Returns the subset of ``vault_paths`` (in their original casing) whose
+        canonical (lowercased) document IDs exist in CouchDB and are not tombstones.
         """
-        paths = [self._norm(p) for p in vault_paths if self._norm(p)]
+        norm_map: dict[str, list[str]] = {}
+        for p in vault_paths:
+            n = self._norm(p)
+            if n:
+                norm_map.setdefault(n, []).append(p)
+        if not norm_map:
+            return set()
+
         found: set[str] = set()
-        if not paths:
-            return found
+        keys = list(norm_map.keys())
         url = f"{self._base()}/_all_docs"
-        for start in range(0, len(paths), 100):
-            batch = paths[start:start + 100]
+        for start in range(0, len(keys), 100):
+            batch = keys[start:start + 100]
             res = await self._request(url, method="POST", json_body={"keys": batch})
             if res.status_code != 200:
                 raise PublishProbeError(
@@ -296,17 +315,18 @@ class PublishProber:
                 # must not be reported as delivered.
                 if value.get("deleted"):
                     continue
-                if row.get("id"):
-                    found.add(str(row["id"]))
+                doc_id = str(row.get("id") or "").lower()
+                if doc_id and doc_id in norm_map:
+                    for orig in norm_map[doc_id]:
+                        found.add(orig)
         return found
 
     async def doc_exists(self, vault_path: str) -> bool:
-        return self._norm(vault_path) in await self.existing_docs([vault_path])
+        return vault_path in await self.existing_docs([vault_path])
 
     async def missing_docs(self, vault_paths: Sequence[str]) -> list[str]:
-        wanted = [self._norm(p) for p in vault_paths if self._norm(p)]
-        found = await self.existing_docs(wanted)
-        return [path for path in wanted if path not in found]
+        found = await self.existing_docs(vault_paths)
+        return [path for path in vault_paths if path not in found]
 
     # ------------------------------------------------------------- public API
 

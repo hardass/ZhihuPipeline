@@ -428,3 +428,13 @@ def test_delivery_backlog_separates_waiting_from_unrecoverable(tmp_path):
     assert backlog["gone"] == ["answer_gone"]
     # The headline number must not absorb the unrecoverable entries.
     assert engine.manifest.get_stats()["total_unpublished"] == 2
+
+
+def test_supported_item_types(tmp_path):
+    engine = make_engine(tmp_path)
+    assert engine._is_supported_item({"type": "answer"}) is True
+    assert engine._is_supported_item({"type": "article"}) is True
+    assert engine._is_supported_item({"type": "pin"}) is True
+    assert engine._is_supported_item({"type": "question"}) is False
+    assert engine._is_supported_item({"type": "zvideo"}) is False
+

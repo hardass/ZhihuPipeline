@@ -77,3 +77,31 @@ def test_render_video_embeds():
     rendered = render_video_embeds([{"asset": assets[0], "vault_path": "assets/知乎视频/note/video-123-ld.mp4"}])
 
     assert rendered == "## 视频\n\n![[assets/知乎视频/note/video-123-ld.mp4]]"
+
+
+def test_extract_pin_detail_with_images_and_no_video():
+    pin = {
+        "title": "Karpathy 又发福利了",
+        "raw_content": {
+            "author": {"name": "AI拯救打工人"},
+            "created": 1789000000,
+            "like_count": 42,
+            "content": [
+                {
+                    "type": "text",
+                    "content": "<p>以后别只让 AI 给你写答案。</p>",
+                },
+                {
+                    "type": "image",
+                    "original_url": "https://picx.zhimg.com/v2-img.jpg",
+                },
+            ],
+        },
+    }
+    detail = extract_pin_detail(pin)
+    assert detail["title"] == "Karpathy 又发福利了"
+    assert "<p>以后别只让 AI 给你写答案。</p>" in detail["content_html"]
+    assert '<p><img src="https://picx.zhimg.com/v2-img.jpg" /></p>' in detail["content_html"]
+    assert detail["author_name"] == "AI拯救打工人"
+    assert detail["vote_count"] == 42
+

@@ -118,6 +118,31 @@ def test_stale_node_blocks_verification_even_if_docs_exist():
     assert not result.delivered and result.missing == ["知乎收藏/a.md"]
 
 
+def test_quiescent_node_at_latest_database_cursor_is_fresh():
+    """A node whose age exceeds max_stale but whose cursor matches DB is quiescent, not dead."""
+    prober = build_prober(
+        lambda url, method, body=None: (
+            milestone({
+                "n1": {
+                    "device_name": "zhihu-node",
+                    "last_connected": fresh_ms() - 60 * 60 * 1000,  # 1h old
+                    "progress": "67300-x",
+                }
+            })
+            if MILESTONE_DOC in url
+            else (
+                FakeResponse(200, {"update_seq": "67300-y"})
+                if url.endswith("/obsidian-vault")
+                else all_docs_rows(body["keys"], {"知乎收藏/a.md"})
+            )
+        )
+    )
+    result = run(prober.verify(["知乎收藏/a.md"]))
+    assert result.delivered
+    assert result.confirmed == ["知乎收藏/a.md"]
+
+
+
 def test_missing_node_is_treated_as_dead_channel():
     prober = build_prober(
         lambda url, method, body=None: (
@@ -194,7 +219,7 @@ def test_existence_is_checked_by_document_id_not_by_url_path():
             seen.append((url, method, body)) or (
                 milestone({"n1": {"device_name": "zhihu-node", "last_connected": fresh_ms()}})
                 if MILESTONE_DOC in url
-                else all_docs_rows(body["keys"], {"知乎收藏/我的收藏/2026-09-28 Jev 新玩法.md"})
+                else all_docs_rows(body["keys"], {"知乎收藏/我的收藏/2026-09-28 jev 新玩法.md"})
             )
         )
     )
@@ -202,8 +227,38 @@ def test_existence_is_checked_by_document_id_not_by_url_path():
     assert run(prober.doc_exists(path)) is True
     posts = [call for call in seen if call[1] == "POST"]
     assert posts and posts[0][0].endswith("/obsidian-vault/_all_docs")
-    assert posts[0][2] == {"keys": [path]}
+    assert posts[0][2] == {"keys": ["知乎收藏/我的收藏/2026-09-28 jev 新玩法.md"]}
     assert not any("%20" in call[0] for call in seen)
+
+
+def test_document_casing_insensitivity_and_preservation():
+    """LiveSync CouchDB document IDs are lowercased; probe must match and preserve original casing."""
+    prober = build_prober(
+        lambda url, method, body=None: (
+            milestone({"n1": {"device_name": "zhihu-node", "last_connected": fresh_ms()}})
+            if MILESTONE_DOC in url
+            else all_docs_rows(body["keys"], {"知乎收藏/我的收藏/cloudflare workers.md"})
+        )
+    )
+    res = run(prober.verify(["知乎收藏/我的收藏/Cloudflare Workers.md"]))
+    assert res.delivered
+    assert res.confirmed == ["知乎收藏/我的收藏/Cloudflare Workers.md"]
+    assert not res.missing
+
+
+def test_node_name_prefix_matching():
+    """A configured node_name 'notes' should match 'notes-547ad80b1bc0fb6f'."""
+    prober = build_prober(
+        lambda url, method, body=None: milestone({
+            "n1": {"device_name": "notes-547ad80b1bc0fb6f", "last_connected": fresh_ms()}
+        })
+    )
+    prober.config.node_name = "notes"
+    node = run(prober.node_status())
+    assert node is not None
+    assert node.device_name == "notes-547ad80b1bc0fb6f"
+    fresh, _ = run(prober.node_is_fresh())
+    assert fresh
 
 
 def test_freshest_identity_wins_when_a_cli_node_re_registers():

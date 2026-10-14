@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -85,18 +86,36 @@ def extract_pin_video_assets(
 def extract_pin_detail(item: Dict[str, Any]) -> Dict[str, Any]:
     """Convert a pin's collection payload into the detail shape used by SyncEngine."""
     raw = item.get("raw_content") or {}
+    content_blocks = raw.get("content") or []
     text_blocks = [
         block
-        for block in (raw.get("content") or [])
+        for block in content_blocks
         if isinstance(block, dict) and block.get("type") == "text"
     ]
     title = next((block.get("title") for block in text_blocks if block.get("title")), None)
-    title = title or item.get("title") or "知乎想法"
-    html_parts = [
-        block.get("content", "")
-        for block in text_blocks
-        if block.get("content", "").strip() not in {"", "-", "<p>-</p>"}
-    ]
+    title = title or item.get("title")
+    if not title or title == "知乎想法":
+        for block in text_blocks:
+            c = re.sub(r"<[^>]+>", "", block.get("content", "")).strip()
+            if c:
+                title = c[:40]
+                break
+    title = title or "知乎想法"
+
+    html_parts = []
+    for block in content_blocks:
+        if not isinstance(block, dict):
+            continue
+        b_type = block.get("type")
+        if b_type == "text":
+            content = block.get("content", "")
+            if content.strip() not in {"", "-", "<p>-</p>"}:
+                html_parts.append(content)
+        elif b_type == "image":
+            img_url = block.get("original_url") or block.get("url") or ""
+            if img_url:
+                html_parts.append(f'<p><img src="{img_url}" /></p>')
+
     author = raw.get("author") or {}
     author_name = author.get("name", "") if isinstance(author, dict) else ""
     return {
