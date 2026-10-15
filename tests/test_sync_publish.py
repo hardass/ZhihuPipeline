@@ -438,3 +438,50 @@ def test_supported_item_types(tmp_path):
     assert engine._is_supported_item({"type": "question"}) is False
     assert engine._is_supported_item({"type": "zvideo"}) is False
 
+
+def test_inbox_consumed_for_already_published_item_without_new_publish_batch(tmp_path):
+    engine = make_engine(tmp_path)
+    engine.manifest.add_item(
+        "answer_1",
+        {"title": "Prev Published", "local_path": "知乎收藏/我的收藏/prev.md", "collection": "我的收藏"},
+        publish_status="published",
+    )
+    # Simulate discovering this item in Zhihu collection
+    engine._track_existing_item(
+        "answer_1",
+        {"title": "Prev Published", "type": "answer", "url": "https://zhihu.com/a/1", "id": "1"},
+        "我的收藏",
+    )
+    assert len(engine._pending_removals) == 1
+    assert "answer_1" not in engine._awaiting_delivery
+
+    removals = []
+    ctx, page, login, remove = patch_browser(removals)
+    with ctx, page, login, remove:
+        consumed, failed = run(engine._consume_inbox(set()))  # confirmed_keys is empty
+    assert (consumed, failed) == (1, 0)
+    assert removals == ["我的收藏"]
+
+
+def test_inbox_retains_unconfirmed_existing_item(tmp_path):
+    engine = make_engine(tmp_path)
+    engine.manifest.add_item(
+        "answer_2",
+        {"title": "Unproven", "local_path": "知乎收藏/我的收藏/unproven.md", "collection": "我的收藏"},
+        publish_status="unverified",
+    )
+    engine._track_existing_item(
+        "answer_2",
+        {"title": "Unproven", "type": "answer", "url": "https://zhihu.com/a/2", "id": "2"},
+        "我的收藏",
+    )
+    assert len(engine._pending_removals) == 1
+    assert "answer_2" in engine._awaiting_delivery
+
+    removals = []
+    ctx, page, login, remove = patch_browser(removals)
+    with ctx, page, login, remove:
+        consumed, failed = run(engine._consume_inbox(set()))
+    assert (consumed, failed) == (0, 0)
+    assert removals == []
+

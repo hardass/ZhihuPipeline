@@ -452,8 +452,8 @@ class SyncEngine:
         """
         manifest_item = self.manifest.data.get("synced_items", {}).get(unique_key, {})
         status = manifest_item.get("publish_status", "pending")
+        self._queue_inbox_action(unique_key, item, col_title)
         if status == "published":
-            self._queue_inbox_action(unique_key, item, col_title)
             return
 
         paths = self._publish_targets(manifest_item)
@@ -632,14 +632,19 @@ class SyncEngine:
         Indirect proof is not enough here: deleting the last copy of a note on a
         cursor guess is how this pipeline loses data.
         """
-        actionable = [entry for entry in self._pending_removals if entry["key"] in confirmed_keys]
+        actionable = [
+            entry
+            for entry in self._pending_removals
+            if entry["key"] in confirmed_keys
+            or self.manifest.data.get("synced_items", {}).get(entry["key"], {}).get("publish_status") == "published"
+        ]
+        held = len(self._pending_removals) - len(actionable)
+        if held > 0:
+            logger.warning(
+                f"{held} item(s) stay in the Zhihu inbox because their delivery "
+                "is not confirmed yet."
+            )
         if not actionable:
-            held = len(self._pending_removals)
-            if held:
-                logger.warning(
-                    f"{held} item(s) stay in the Zhihu inbox because their delivery "
-                    "is not confirmed yet."
-                )
             return 0, 0
 
         ok = 0
