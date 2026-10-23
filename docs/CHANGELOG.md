@@ -2,6 +2,15 @@
 
 本文件记录项目的重大变更、安全修复和架构调整，供后续维护者和 Agent 参考。
 
+## [2026-10-23] Production `livesync.node_name` fixed, milestone ghosts pruned, and Suika watchdog added
+
+Investigated a false-negative delivery alert (`node 'notes-547ad80b1bc0fb6f' last replicated 2520.9 min ago`) handled earlier today by the Hermes agent on Suika:
+
+- **Root cause**: `zhihu-livesync-node` was healthy and replicating at the database head (`cursor == update_seq == 132542`) under its CLI-assigned name `headless-vault-547ad80b1bc0fb6f`. However, NAS `/share/homes/hardass/zhihu-pipeline/config.yaml` still had `livesync.node_name: 'notes-547ad80b1bc0fb6f'` — an old client registration entry in `_local/obsydian_livesync_milestone.node_info` that last connected on 2026-10-21 15:00 (`cur 132417`). Once the database `update_seq` advanced past `132417`, `PublishProbe.node_is_fresh()` correctly flagged that stale entry and held new notes in the inbox.
+- **NAS config fix**: Updated `livesync.node_name` in NAS `config.yaml` in-place (preserving the bind-mounted file inode so `/app/config.yaml` updated inside `zhihu-pipeline` without container recreation; backup saved as `config.yaml.bak-20261023`). At the next scheduled run (13:06), the pending note was verified and consumed from the Zhihu inbox.
+- **CouchDB milestone cleanup**: Pruned 11 stale ghost entries (from 2026-10-21 and earlier) from `_local/obsydian_livesync_milestone.node_info`, keeping only the active headless node (`headless-vault-547ad80b1bc0fb6f`) and the active client entry (`notes-documents/notes`).
+- **Suika cron watchdog**: Added `/home/hardass/livesync-watchdog/check.sh` on Suika (`*/30 * * * *`), which queries CouchDB via `zhihu-pipeline` container, checks `age_min > 45 and best_cur < db_cur` (matching `PublishProbe.node_is_fresh` quiescent-at-cursor semantics), restarts `zhihu-livesync-node` (throttled to once per 2h) if genuinely stuck behind, and sends a notification via `notify-gateway`.
+
 ## [2026-10-09] Attachment layout unified back to `assets/<note title>/`
 
 The `assets/知乎附件/` prefix survived on the NAS data even though the code was

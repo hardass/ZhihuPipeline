@@ -48,6 +48,7 @@ sudo -n "$QNAP_DOCKER" -H unix:///var/run/docker.sock logs --tail 200 zhihu-pipe
 
 - **附件布局已统一（2026-10-09 晚，用户授权）**：`assets/知乎附件/<标题>/` 全部并回 `assets/<标题>/`，189 篇笔记的 2,618 条链接在 NAS 与 Mac 两侧都改过，抽样 561 条链接零断链；服务器端 3,426 条旧前缀文档已核对新路径逐字节同源后打 tombstone，新路径文档由"复制文档体、改 `_id`/`path`、复用同一批 `h:+` 分块"直接建出来（分块是内容寻址的，不需要口令或重新上传）。NAS 改前的 189 篇笔记备份在 `notes/.pipeline/backups/pre-unify-20261009-211337`（节点忽略 `.pipeline/`，不会同步）。
 - **节点不会为"搬家"重发文件（实测教训）**：把文件从一个路径移到另一个路径后，节点本地存储里仍留着旧路径的同步记录，重启后的 mirror scan 也不会为新路径补发文档；同理，改过正文的笔记要等节点扫完才会推（扫描期间 CPU 100%+，可能十几分钟）。给附件改路径时，正确做法是服务端直接复制文档体建新路径文档（本次做法），或者先清掉节点本地存储再让它重建。
+- **2026-10-23 生产 `node_name` 修正与 Suika 看门狗**：NAS `config.yaml` 里的 `livesync.node_name` 之前遗留为 `'notes-547ad80b1bc0fb6f'`（客户端旧注册名，10-21 15:00 后不再更新，导致探针在游标落后的情况下报假警），已原地修正为 CLI 节点的真实注册名 `"headless-vault-547ad80b1bc0fb6f"`（备份在 `config.yaml.bak-20261023`），并清理了 CouchDB `_local/obsydian_livesync_milestone.node_info` 里 10-21 及之前的 11 条陈旧鬼影记录。此外，Suika VM（`100.70.88.92`）上的 Hermes Agent 部署了每 30 分钟一次的 cron 看门狗（`suika:/home/hardass/livesync-watchdog/check.sh`）：若检测到节点心跳 >45 分钟且游标落后于数据库 `update_seq`，会自动 SSH 到 NAS 重启 `zhihu-livesync-node`（2 小时防抖）并经 `notify-gateway` 告警——后续排查容器重启事件时需知晓该外部触发源。
 
 
 ## NAS 运维陷阱（实测）
