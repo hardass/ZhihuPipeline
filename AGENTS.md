@@ -1,11 +1,32 @@
 # ZhihuPipeline Agent 运行规则
 
+## 开发与部署流程（2026-11-09 起：NUC 主导，GitHub 为唯一源）
+
+老板决定：**以后开发一律在 NUC（nuc7，`hardass@192.168.1.170`，Tailscale `100.94.30.31`）上做，以 NUC 为主开发机**。GitHub 仓库是唯一源码源，NAS 只是部署目标，不再直接改 NAS 上的源码。
+
+- 唯一源码源：`git@github.com:hardass/ZhihuPipeline.git`（public，默认分支 `main`）。Mac 的 `~/vibe/ZhihuPipeline` 与 NUC 的 `~/zhihu-pipeline` 都是普通 clone；改完必须 push，NUC 的 `~/.ssh/id_ed25519` 已在 GitHub 授权。
+- 开发机初始化（NUC 已就绪，换机时照此）：
+
+  ```bash
+  git clone git@github.com:hardass/ZhihuPipeline.git ~/zhihu-pipeline
+  cd ~/zhihu-pipeline && uv venv .venv
+  uv pip install --python .venv/bin/python --index-url https://pypi.tuna.tsinghua.edu.cn/simple \
+      playwright loguru pyyaml httpx click markdownify beautifulsoup4 tqdm pytest pytest-asyncio
+  ```
+
+  **必须加清华镜像**：nuc7 直连 `files.pythonhosted.org` 下载 playwright（约 40MB）会超时（2026-11-09 实测重试 4 次全挂）。单元测试只用到 playwright 的 import，不需要 `playwright install` 下浏览器。
+- 跑测试：`PYTHONPATH=src .venv/bin/python -m pytest tests -q`（2026-11-09 全量 **97 passed**，NUC 与 Mac 结果一致）。
+- 部署到 NAS：`./scripts/deploy_nas.sh`（`--dry-run` 只看差异、`--restart` 强制重启容器）。脚本流程：拒绝脏工作区 → `git archive HEAD` 导出干净树 → rsync 到 NAS → 第二遍 checksum 校验必须零差异 → 仅当 `zhihu_pipeline/` 有内容变化时才重启容器。
+- 部署边界：`src/ tests/ docs/` 和几个顶层文件由脚本接管（带 `--delete`）；NAS 顶层的其余内容是运行时状态（`config.yaml`、`config.yaml.bak*`、`.notify_key`、`logs/`、`notes/`、`chrome_profile/`、`backups/`、`.venv`、`yt_venv`、`zhihu_qr.png`、`video_info.json`），**脚本绝不删除**。也不要手工往 `src/` 塞未跟踪文件，下一次部署会被清掉。
+- **不要再在 NAS 上直接编辑源码**：容器 `src` 是 live mount，改动必须重启容器才生效，而且会和 GitHub 漂移。2026-11-09 修掉的正是这种漂移——NAS 缺 5 个 test 文件，`README.md`/`pyproject.toml`/`uv.lock` 落后于仓库，同时 `docs/STEP_BY_STEP.md` 只存在于 NAS（已补进仓库）。
+
 ## NAS / QNAP Docker
 
 这个项目的生产容器运行在 QNAP NAS，不运行在当前 Mac 的本地 Docker 中。
 
 - NAS：`hardass@192.168.1.195`；Tailscale fallback：`hardass@100.75.232.63` 或 `hardass@nas8c117a`。
 - **2026-10-07 实测**：LAN 地址 `192.168.1.195` 能 ping 通但 22 端口拒绝连接，而 `nas8c117a`（MagicDNS）22 端口正常。**优先用 `hardass@nas8c117a`**；不要因为 LAN 端口 refused 就判定 NAS 关机或不可达。
+- **2026-11-09 实测**：LAN `192.168.1.195:22` 已恢复正常，可以直连（部署脚本默认走 LAN，失败时回退 `hardass@nas8c117a`）。
 - SSH 使用本机 `~/.ssh/id_ed25519`，优先 `BatchMode=yes`、`IdentitiesOnly=yes`，不要使用 `ssh -A`。
 - QNAP 普通 Docker 客户端不在 PATH：`/share/CACHEDEV3_DATA/.qpkg/container-station/usr/bin/.libs/docker`
 - Zhihu Pipeline 使用普通 Docker socket：`/var/run/docker.sock`；不要误查 `system-docker.sock`。
