@@ -12,10 +12,11 @@
   cd ~/zhihu-pipeline && uv venv .venv
   uv pip install --python .venv/bin/python --index-url https://pypi.tuna.tsinghua.edu.cn/simple \
       playwright loguru pyyaml httpx click markdownify beautifulsoup4 tqdm pytest pytest-asyncio
+  uv pip install --python .venv/bin/python -e . --no-deps   # 依赖已装好，避免再解析依赖去拉 playwright
   ```
 
   **必须加清华镜像**：nuc7 直连 `files.pythonhosted.org` 下载 playwright（约 40MB）会超时（2026-11-09 实测重试 4 次全挂）。单元测试只用到 playwright 的 import，不需要 `playwright install` 下浏览器。
-- 跑测试：`PYTHONPATH=src .venv/bin/python -m pytest tests -q`（2026-11-09 全量 **97 passed**，NUC 与 Mac 结果一致）。
+- 跑测试：`.venv/bin/python -m pytest tests -q`（做上面那条 `-e . --no-deps` 后无需 `PYTHONPATH`；未安装裸 clone 时用 `PYTHONPATH=src .venv/bin/python -m pytest tests -q`）。2026-11-09 全量 **97 passed**，NUC 与 Mac 一致；`python -m zhihu_pipeline --help` 也应正常。
 - 部署到 NAS：`./scripts/deploy_nas.sh`（`--dry-run` 只看差异、`--restart` 强制重启容器）。脚本流程：拒绝脏工作区 → `git archive HEAD` 导出干净树 → rsync 到 NAS → 第二遍 checksum 校验必须零差异 → 仅当 `zhihu_pipeline/` 有内容变化时才重启容器。
 - 部署边界：`src/ tests/ docs/` 和几个顶层文件由脚本接管（带 `--delete`）；NAS 顶层的其余内容是运行时状态（`config.yaml`、`config.yaml.bak*`、`.notify_key`、`logs/`、`notes/`、`chrome_profile/`、`backups/`、`.venv`、`yt_venv`、`zhihu_qr.png`、`video_info.json`），**脚本绝不删除**。也不要手工往 `src/` 塞未跟踪文件，下一次部署会被清掉。
 - **不要再在 NAS 上直接编辑源码**：容器 `src` 是 live mount，改动必须重启容器才生效，而且会和 GitHub 漂移。2026-11-09 修掉的正是这种漂移——NAS 缺 5 个 test 文件，`README.md`/`pyproject.toml`/`uv.lock` 落后于仓库，同时 `docs/STEP_BY_STEP.md` 只存在于 NAS（已补进仓库）。
