@@ -34,7 +34,7 @@ def test_bot_unauthorized_chat_id(dummy_config):
 
         # Should send unauthorized error
         daemon.send_message.assert_called_once()
-        assert "无权访问" in daemon.send_message.call_args[0][1]
+        assert "Access denied" in daemon.send_message.call_args[0][1]
 
     asyncio.run(_run())
 
@@ -54,7 +54,7 @@ def test_bot_start_command(dummy_config):
         await daemon.process_update(update)
 
         daemon.send_message.assert_called_once()
-        assert "Zhihu Pipeline 机器人已就绪" in daemon.send_message.call_args[0][1]
+        assert "Zhihu Pipeline bot is ready" in daemon.send_message.call_args[0][1]
 
     asyncio.run(_run())
 
@@ -83,7 +83,7 @@ def test_bot_status_command(dummy_config):
 
         daemon.send_message.assert_called_once()
         status_text = daemon.send_message.call_args[0][1]
-        assert "已同步总篇数*: `2`" in status_text
+        assert "*Total synced*: `2`" in status_text
         assert "技术" in status_text
 
     asyncio.run(_run())
@@ -108,7 +108,7 @@ def test_bot_sync_locked_concurrency(dummy_config):
         # Give event loop a microtick to process task
         await asyncio.sleep(0.01)
 
-        daemon.send_message.assert_called_with("123456789", "⚠️ *当前已有一个同步任务正在运行中*，请稍候完成。")
+        daemon.send_message.assert_called_with("123456789", "⚠️ *A sync task is already running*, wait for it to finish.")
         daemon.sync_lock.release()
 
     asyncio.run(_run())

@@ -59,23 +59,23 @@ class TelegramBotDaemon:
         error = stats.get("publish_error")
         consumed = stats.get("inbox_consumed") or 0
 
-        labels = {"git": "GitHub", "livesync": "LiveSync 节点", "none": "无（未配置投递通道）"}
+        labels = {"git": "GitHub", "livesync": "LiveSync node", "none": "none (no delivery channel configured)"}
         channel_label = labels.get(channel, channel)
 
         if published is True:
-            verdict = "已确认送达"
+            verdict = "confirmed delivered"
         elif published is False:
-            verdict = f"未确认送达（{pending.__len__()} 篇待补投）" if pending else "未确认送达"
+            verdict = f"delivery unconfirmed ({pending.__len__()} item(s) pending retry)" if pending else "delivery unconfirmed"
         else:
-            verdict = "本轮无新内容需投递"
+            verdict = "nothing new to deliver this pass"
 
         if error:
-            verdict = f"{verdict}｜{error}"
+            verdict = f"{verdict} | {error}"
 
         return (
-            f"• *发布通道*: `{channel_label}`\n"
-            f"• *发布状态*: `{verdict}`\n"
-            f"• *收件箱消费*: `{consumed}` 篇"
+            f"• *Delivery channel*: `{channel_label}`\n"
+            f"• *Delivery status*: `{verdict}`\n"
+            f"• *Inbox consumed*: `{consumed}` item(s)"
         )
 
     async def notify(self, message: str, title: str = "Zhihu Pipeline") -> bool:
@@ -90,7 +90,7 @@ class TelegramBotDaemon:
             await self.send_message(self.admin_chat_id, f"*{title}*\n{message}")
         return sent
 
-    async def alert(self, message: str, title: str = "⚠️ Zhihu Pipeline 异常") -> bool:
+    async def alert(self, message: str, title: str = "⚠️ Zhihu Pipeline error") -> bool:
         """
         Notify with a one-hour dedup window per distinct message.
 
@@ -144,9 +144,9 @@ class TelegramBotDaemon:
     async def set_my_commands(self):
         """Register bot command menu in Telegram."""
         commands = [
-            {"command": "sync", "description": "立即开始同步知乎收藏"},
-            {"command": "status", "description": "查看系统状态与同步统计"},
-            {"command": "help", "description": "查看使用帮助"}
+            {"command": "sync", "description": "Trigger a Zhihu favourites sync now"},
+            {"command": "status", "description": "Show system status and sync stats"},
+            {"command": "help", "description": "Show help"}
         ]
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -158,12 +158,12 @@ class TelegramBotDaemon:
         """Handle /start or /help."""
         interval = self.config.sync.schedule_interval_hours
         msg = (
-            "🤖 *Zhihu Pipeline 机器人已就绪*\n\n"
-            "支持的指令列表：\n"
-            "• `/sync` - 立即触发一次知乎收藏同步\n"
-            "• `/status` - 查看同步历史与存储状态\n"
-            "• `/help` - 显示本帮助菜单\n\n"
-            f"⏰ *自动巡检*: 每隔 ~`{interval}` 小时自动检查新收藏并推送。"
+            "🤖 *Zhihu Pipeline bot is ready*\n\n"
+            "Available commands:\n"
+            "• `/sync` - Trigger a Zhihu favourites sync now\n"
+            "• `/status` - Show sync history and storage status\n"
+            "• `/help` - Show this help menu\n\n"
+            f"⏰ *Auto scan*: checks for new favourites every ~`{interval}` hours."
         )
         await self.send_message(chat_id, msg)
 
@@ -177,46 +177,46 @@ class TelegramBotDaemon:
             # Count by collection
             coll_counts: dict[str, int] = {}
             for it in synced_items.values():
-                coll = it.get("category") or it.get("collection", "未分类")
+                coll = it.get("category") or it.get("collection", "uncategorised")
                 coll_counts[coll] = coll_counts.get(coll, 0) + 1
 
-            coll_summary = "\n".join([f"  • `{k}`: {v} 篇" for k, v in coll_counts.items()]) if coll_counts else "  • 暂无同步记录"
-            last_sync = manifest_data.get("last_sync", "从未同步")
+            coll_summary = "\n".join([f"  • `{k}`: {v} item(s)" for k, v in coll_counts.items()]) if coll_counts else "  • No sync records yet"
+            last_sync = manifest_data.get("last_sync", "never")
 
             interval = self.config.sync.schedule_interval_hours
-            schedule_status = f"已启用（每 ~{interval} 小时）" if self.config.sync.schedule_enabled else "未启用"
+            schedule_status = f"enabled (every ~{interval}h)" if self.config.sync.schedule_enabled else "disabled"
 
             stats = self.engine.manifest.get_stats()
             backlog = self.engine.delivery_backlog()
-            delivery_line = f"• *投递等待中*: `{len(backlog['waiting'])}` 篇\n"
+            delivery_line = f"• *Pending delivery*: `{len(backlog['waiting'])}` item(s)\n"
             if backlog["gone"]:
                 delivery_line += (
-                    f"• *无法投递（文件已不在磁盘）*: `{len(backlog['gone'])}` 篇（不计入等待）\n"
+                    f"• *Undeliverable (file gone from disk)*: `{len(backlog['gone'])}` item(s) (not counted as pending)\n"
                 )
             status_msg = (
-                "📊 *Zhihu Pipeline 运行状态*\n\n"
-                f"• *已同步总篇数*: `{total_items}` 篇\n"
+                "📊 *Zhihu Pipeline status*\n\n"
+                f"• *Total synced*: `{total_items}` item(s)\n"
                 f"{delivery_line}"
-                f"• *发布通道*: `{self.engine.publish_channel}`\n"
-                f"• *自动巡检周期*: `{schedule_status}`\n"
-                f"• *上次同步时间*: `{last_sync}`\n"
-                f"• *笔记保存路径*: `{self.config.output.vault_path}`\n"
-                f"• *状态文件*: `{self.engine.manifest_path}`\n\n"
-                f"*各收藏夹统计*:\n{coll_summary}"
+                f"• *Delivery channel*: `{self.engine.publish_channel}`\n"
+                f"• *Auto scan interval*: `{schedule_status}`\n"
+                f"• *Last sync*: `{last_sync}`\n"
+                f"• *Notes path*: `{self.config.output.vault_path}`\n"
+                f"• *State file*: `{self.engine.manifest_path}`\n\n"
+                f"*Per-collection stats*:\n{coll_summary}"
             )
             await self.send_message(chat_id, status_msg)
         except Exception as e:
             logger.error(f"Failed to query status: {e}")
-            await self.send_message(chat_id, f"❌ 查询状态失败: {e}")
+            await self.send_message(chat_id, f"❌ Status query failed: {e}")
 
     async def handle_command_sync(self, chat_id: str):
         """Handle /sync command with concurrency guard."""
         if self.sync_lock.locked():
-            await self.send_message(chat_id, "⚠️ *当前已有一个同步任务正在运行中*，请稍候完成。")
+            await self.send_message(chat_id, "⚠️ *A sync task is already running*, wait for it to finish.")
             return
 
         async with self.sync_lock:
-            await self.send_message(chat_id, "🔄 *已启动知乎收藏同步任务...*\n若需要扫码登录，二维码将自动推送至本对话。")
+            await self.send_message(chat_id, "🔄 *Zhihu favourites sync started...*\nIf a QR login is needed, the code will be pushed to this chat.")
             start_time = time.time()
             try:
                 # Run the complete sync flow
@@ -229,25 +229,25 @@ class TelegramBotDaemon:
                 tag_failed_count = stats.get("tag_failed", 0)
 
                 summary = (
-                    "✅ *知乎收藏同步完成！*\n\n"
-                    f"• *新同步篇数*: `{synced_count}` 篇\n"
-                    f"• *失败篇数*: `{failed_count}` 篇\n"
-                    f"• *本次打标签*: `{tagged_count}` 成功 / `{tag_failed_count}` 失败\n"
-                    f"• *任务耗时*: `{elapsed}` 秒\n"
+                    "✅ *Zhihu favourites sync complete!*\n\n"
+                    f"• *Newly synced*: `{synced_count}` item(s)\n"
+                    f"• *Failed*: `{failed_count}` item(s)\n"
+                    f"• *Tagged this run*: `{tagged_count}` ok / `{tag_failed_count}` failed\n"
+                    f"• *Duration*: `{elapsed}` s\n"
                     f"{self.publish_line(stats)}\n"
-                    f"• *保存目录*: `{self.config.output.vault_path}`"
+                    f"• *Saved to*: `{self.config.output.vault_path}`"
                 )
                 await self.send_message(chat_id, summary)
                 pending_count = len(stats.get("publish_pending") or [])
                 if stats.get("published") is not True and synced_count:
-                    reason = stats.get("publish_error") or f"{pending_count} 篇尚未确认到达共享库"
+                    reason = stats.get("publish_error") or f"{pending_count} item(s) not confirmed in the shared library"
                     await self.alert(
-                        f"本轮新增 {synced_count} 篇笔记，但投递通道没有确认送达：{reason}",
-                        title="❌ Zhihu Pipeline 发布未确认",
+                        f"{synced_count} new note(s) this run, but the delivery channel did not confirm delivery: {reason}",
+                        title="❌ Zhihu Pipeline delivery unconfirmed",
                     )
             except Exception as e:
                 logger.error(f"Sync failed in bot handler: {e}")
-                await self.send_message(chat_id, f"❌ *同步过程发生异常*:\n`{str(e)}`")
+                await self.send_message(chat_id, f"❌ *Sync failed*:\n`{str(e)}`")
 
     async def run_scheduled_sync_loop(self):
         """Periodic background worker with anti-crawling randomized jitter."""
@@ -281,21 +281,21 @@ class TelegramBotDaemon:
                             logger.info("[Scheduled Sync] Finished: nothing new to download.")
                         else:
                             summary_lines = [
-                                f"• 新同步: <b>{synced_count}</b> 篇",
-                                f"• 发布通道: <code>{stats.get('publish_channel', 'none')}</code>",
+                                f"• Newly synced: <b>{synced_count}</b> item(s)",
+                                f"• Delivery channel: <code>{stats.get('publish_channel', 'none')}</code>",
                             ]
                             if published is True:
                                 summary_lines.append(
-                                    f"• 投递状态: <b>已确认送达</b>（收件箱消费 {stats.get('inbox_consumed', 0)} 篇）"
+                                    f"• Delivery status: <b>confirmed delivered</b> (inbox consumed {stats.get('inbox_consumed', 0)} item(s))"
                                 )
-                                title = "⏰ 定时自动同步完成"
+                                title = "⏰ Scheduled sync complete"
                             else:
-                                reason = stats.get("publish_error") or f"{len(pending)} 篇未确认"
-                                summary_lines.append(f"• 投递状态: <b>未确认</b> - {reason}")
+                                reason = stats.get("publish_error") or f"{len(pending)} item(s) unconfirmed"
+                                summary_lines.append(f"• Delivery status: <b>unconfirmed</b> - {reason}")
                                 summary_lines.append(
-                                    "• 这些笔记仍留在知乎收藏夹里，下个周期会自动重试。"
+                                    "• These notes stay in the Zhihu favourites folder and are retried next cycle."
                                 )
-                                title = "❌ Zhihu Pipeline 发布未确认"
+                                title = "❌ Zhihu Pipeline delivery unconfirmed"
                             text = "\n".join(summary_lines)
                             if published is True:
                                 await self.notify(text, title)
@@ -310,9 +310,9 @@ class TelegramBotDaemon:
                 # invisible last time: fail-closed aborts must reach the operator.
                 logger.exception(f"[Scheduled Sync] Error during pass: {e}")
                 await self.alert(
-                    f"定时同步这一轮直接失败了：{type(e).__name__}: {e}\n"
-                    "新笔记可能仍停留在 NAS 磁盘上，请检查容器日志。",
-                    title="❌ Zhihu Pipeline 同步中断",
+                    f"The scheduled sync pass failed outright: {type(e).__name__}: {e}\n"
+                    "New notes may still be sitting on the NAS disk; check the container logs.",
+                    title="❌ Zhihu Pipeline sync aborted",
                 )
 
             # Calculate next sleep interval with randomized jitter (e.g. 2h ± 25m -> 95m to 145m)
@@ -343,7 +343,7 @@ class TelegramBotDaemon:
         # Security check: only respond to admin_chat_id
         if self.admin_chat_id and chat_id != self.admin_chat_id:
             logger.warning(f"Unauthorized access attempt from chat_id={chat_id}, username={chat.get('username')}")
-            await self.send_message(chat_id, "⛔ *无权访问*：您不是本机器人的授权管理员。")
+            await self.send_message(chat_id, "⛔ *Access denied*: you are not this bot's authorised admin.")
             return
 
         cmd = text.split()[0].lower() if text else ""
@@ -357,7 +357,7 @@ class TelegramBotDaemon:
             # Run sync task in background so polling doesn't block
             asyncio.create_task(self.handle_command_sync(chat_id))
         else:
-            await self.send_message(chat_id, "❓ 未知指令。发送 `/help` 查看可用指令列表。")
+            await self.send_message(chat_id, "❓ Unknown command. Send `/help` for the list of commands.")
 
     async def run_polling(self):
         """Main long-polling loop."""
@@ -399,7 +399,7 @@ class TelegramBotDaemon:
                 await self.set_my_commands()
                 await self.send_message(
                     self.admin_chat_id,
-                    "🚀 *Zhihu Pipeline 常驻守护机器人已启动！*\n发送 `/sync` 即可随时开始抓取。",
+                    "🚀 *Zhihu Pipeline daemon started!*\nSend `/sync` to start a fetch at any time.",
                 )
 
                 while self.is_running:

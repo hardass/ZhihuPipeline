@@ -767,7 +767,7 @@ class SyncEngine:
         if backlog["gone"]:
             print(
                 f"Delivery Unrecoverable: {len(backlog['gone'])} "
-                "(文件已不在磁盘上，无投递对象；不计入等待数)"
+                "(source file no longer on disk, nothing to deliver; not counted as pending)"
             )
         print(f"Publish Channel: {self.publish_channel}")
         print(f"Last Sync Date: {stats['last_sync'] if stats['last_sync'] else 'Never'}")

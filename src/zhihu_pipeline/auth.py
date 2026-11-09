@@ -285,8 +285,8 @@ async def handle_qr_login(
             
             # Avoid sending random full-page screenshot as a fake "QR code"
             await notifier.notify_text(
-                "检测到登录失效，但在登录页面未找到二维码。请检查知乎账号状态。",
-                title="⚠️ 【知乎登录提示】"
+                "Login expired, but no QR code was found on the sign-in page. Check the Zhihu account status.",
+                title="⚠️ [Zhihu login notice]"
             )
             return False, ""
 
@@ -300,15 +300,15 @@ async def handle_qr_login(
 
         # Push to notification gateway only when valid QR photo is captured
         caption = (
-            "请在手机上打开 <b>知乎 App</b> 扫描上方二维码完成登录。\n"
-            f"二维码有效期约 5 分钟，登录后系统将自动恢复同步任务。"
+            "Open the <b>Zhihu app</b> on your phone and scan the QR code above to sign in.\n"
+            f"The code is valid for about 5 minutes; the sync task resumes automatically after sign-in."
         )
-        qr_sent = await notifier.notify_photo(photo_bytes, caption=caption, title="🔔 【知乎登录已过期】")
+        qr_sent = await notifier.notify_photo(photo_bytes, caption=caption, title="🔔 [Zhihu login expired]")
 
         print("\n" + "="*60)
-        print("【提示】知乎登录已过期！")
-        print("已将登录二维码推送至 Telegram（本地已保存至 zhihu_qr.png）。")
-        print("请在手机知乎 App 中扫码，系统将自动检测登录状态...")
+        print("[Notice] Zhihu login has expired!")
+        print("Login QR code pushed to Telegram (local copy saved to zhihu_qr.png).")
+        print("Scan it with the Zhihu app on your phone; the system polls for the login state...")
         print("="*60 + "\n")
 
         # Polling loop waiting for login
@@ -326,8 +326,8 @@ async def handle_qr_login(
                 if ok:
                     logger.info(f"QR Login successful! User: {username}")
                     if qr_sent:
-                        success_msg = f"当前账号：<b>{username}</b>\nPipeline 正在继续执行同步任务。"
-                        await notifier.notify_text(success_msg, title="✅ 知乎扫码登录成功！")
+                        success_msg = f"Signed in as <b>{username}</b>\nThe pipeline is resuming the sync task."
+                        await notifier.notify_text(success_msg, title="✅ Zhihu QR login succeeded!")
                     return True, username
 
             # Check for avatar or other indicators directly
@@ -337,8 +337,8 @@ async def handle_qr_login(
                 if ok:
                     logger.info(f"QR Login successful! User: {username}")
                     if qr_sent:
-                        success_msg = f"当前账号：<b>{username}</b>\nPipeline 正在继续执行同步任务。"
-                        await notifier.notify_text(success_msg, title="✅ 知乎扫码登录成功！")
+                        success_msg = f"Signed in as <b>{username}</b>\nThe pipeline is resuming the sync task."
+                        await notifier.notify_text(success_msg, title="✅ Zhihu QR login succeeded!")
                     return True, username
 
             # Check if QR code needs refresh (every 45s)
@@ -356,8 +356,8 @@ async def handle_qr_login(
                             if qr_sent:
                                 await notifier.notify_photo(
                                     new_bytes,
-                                    caption="请扫描最新的二维码完成登录：",
-                                    title="🔄 二维码已刷新"
+                                    caption="Scan the refreshed QR code to sign in:",
+                                    title="🔄 QR code refreshed"
                                 )
                     except Exception as e:
                         logger.debug(f"Refresh QR error: {e}")
@@ -366,8 +366,8 @@ async def handle_qr_login(
         logger.error("QR Code login timed out.")
         if qr_sent:
             await notifier.notify_text(
-                "未在 5 分钟内完成扫码，任务已暂停。请稍后重试。",
-                title="❌ 知乎扫码登录超时"
+                "The QR code was not scanned within 5 minutes, so the task is paused. Try again later.",
+                title="❌ Zhihu QR login timed out"
             )
         return False, ""
 
