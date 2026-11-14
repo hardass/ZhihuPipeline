@@ -6,6 +6,9 @@ services:
     image: zhihu-pipeline:latest
     container_name: zhihu-pipeline
     network_mode: "host"
+    # tini as PID 1: reaps orphaned chrome/crashpad children of each sync run.
+    # Without it python becomes PID 1, never wait()s, and zombies accumulate (~2 per run).
+    init: true
     environment:
       - PYTHONUNBUFFERED=1
       - CHROME_USER_DATA_DIR=/app/chrome_profile
